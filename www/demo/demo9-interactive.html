@@ -1,0 +1,28 @@
+<html><body style="background:#1a1a2e;color:white;padding:20px;font-size:16px;">
+  <h1 style="color:#4fc3f7;">v0.5 Interactive Demo</h1>
+  <p style="color:#90a4ae;margin:10px 0;">Click the buttons below — they trigger onclick handlers!</p>
+
+  <div style="display:flex;gap:10px;margin:20px 0;">
+    <button onclick="var c=document.getElementById('counter');var n=parseInt(c.textContent)||0;c.textContent=''+(n-1);" style="background:#c62828;color:white;padding:10px 24px;font-size:24px;border:none;">-</button>
+    <div id="counter" style="font-size:48px;color:#66bb6a;width:120px;text-align:center;">0</div>
+    <button onclick="var c=document.getElementById('counter');var n=parseInt(c.textContent)||0;c.textContent=''+(n+1);" style="background:#2e7d32;color:white;padding:10px 24px;font-size:24px;border:none;">+</button>
+  </div>
+
+  <button onclick="document.getElementById('counter').textContent='0';" style="background:#1565c0;color:white;padding:8px 16px;font-size:14px;border:none;">Reset</button>
+
+  <div style="margin-top:30px;">
+    <h2 style="color:#4fc3f7;font-size:18px;">Color Picker</h2>
+    <div style="display:flex;gap:10px;margin:10px 0;">
+      <button onclick="document.getElementById('color-box').style.backgroundColor='#c62828';" style="background:#c62828;color:white;padding:10px 20px;border:none;">Red</button>
+      <button onclick="document.getElementById('color-box').style.backgroundColor='#2e7d32';" style="background:#2e7d32;color:white;padding:10px 20px;border:none;">Green</button>
+      <button onclick="document.getElementById('color-box').style.backgroundColor='#1565c0';" style="background:#1565c0;color:white;padding:10px 20px;border:none;">Blue</button>
+    </div>
+    <div id="color-box" style="width:200px;height:80px;background:#333;margin:10px 0;"></div>
+  </div>
+
+  <div style="margin-top:20px;">
+    <h2 style="color:#4fc3f7;font-size:18px;">Toggle</h2>
+    <button onclick="var s=document.getElementById('status');s.textContent=s.textContent==='ON'?'OFF':'ON';s.style.color=s.textContent==='ON'?'#66bb6a':'#ef5350';" style="background:#533483;color:white;padding:10px 20px;border:none;">Toggle</button>
+    <span id="status" style="font-size:24px;color:#ef5350;margin:0 0 0 15px;">OFF</span>
+  </div>
+</body></html>

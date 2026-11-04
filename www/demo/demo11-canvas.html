@@ -1,0 +1,9 @@
+<html><body style="background:#1a1a2e;color:white;padding:20px;">
+  <h1 style="color:#4fc3f7;">Canvas 2D Demo</h1>
+  <div id="canvas-area" style="width:300px;height:200px;background:#263238;"></div>
+  <script>
+    // Test localStorage
+    localStorage.setItem('visits', (parseInt(localStorage.getItem('visits') || '0') + 1));
+    document.getElementById('canvas-area').textContent = 'Visits: ' + localStorage.getItem('visits');
+  </script>
+</body></html>

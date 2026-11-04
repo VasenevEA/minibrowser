@@ -1,0 +1,53 @@
+<html>
+<head>
+<style>
+body { background: #1a1a2e; color: #e0e0e0; padding: 20px; font-size: 14px; margin: 0; }
+h1 { color: #4fc3f7; }
+.grid-3col { display: grid; grid-template-columns: 1fr 1fr 1fr; grid-gap: 10px; margin: 15px 0; }
+.grid-mixed { display: grid; grid-template-columns: 200px 1fr 1fr; grid-gap: 10px; margin: 15px 0; }
+.card { background: #263238; padding: 15px; border-radius: 8px; }
+.card-title { color: #4fc3f7; font-size: 12px; margin-bottom: 5px; }
+.card-value { font-size: 28px; color: #66bb6a; }
+.card-red .card-value { color: #ef5350; }
+.card-blue .card-value { color: #42a5f5; }
+.sidebar { background: #16213e; padding: 15px; border-radius: 8px; }
+</style>
+</head>
+<body>
+  <h1>CSS Grid Demo</h1>
+
+  <div class="grid-3col">
+    <div class="card">
+      <div class="card-title">Temperature</div>
+      <div class="card-value">72.5 °C</div>
+    </div>
+    <div class="card card-blue">
+      <div class="card-title">Pressure</div>
+      <div class="card-value">3.2 bar</div>
+    </div>
+    <div class="card card-red">
+      <div class="card-title">Flow Rate</div>
+      <div class="card-value">145 L/min</div>
+    </div>
+  </div>
+
+  <div class="grid-mixed">
+    <div class="sidebar">
+      <div style="color:#90a4ae;font-size:12px;">Navigation</div>
+      <div style="padding:5px 0;color:#4fc3f7;">Dashboard</div>
+      <div style="padding:5px 0;">Settings</div>
+      <div style="padding:5px 0;">Logs</div>
+    </div>
+    <div class="card" style="grid-column: span 2;">
+      <div class="card-title">Main Content Area</div>
+      <div style="color:#90a4ae;">This card spans 2 columns using grid-template-columns: 200px 1fr 1fr</div>
+    </div>
+  </div>
+
+  <div class="grid-3col">
+    <div class="card" style="text-decoration: underline; color: #4fc3f7;">Underlined text</div>
+    <div class="card" style="text-decoration: line-through; color: #ef5350;">Strikethrough text</div>
+    <div class="card" style="border-radius: 20px; background: #533483; text-align: center;">Rounded card</div>
+  </div>
+</body>
+</html>

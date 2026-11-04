@@ -1,0 +1,151 @@
+<!-- Demo 20: Responsive Layout -->
+<html><body style="background-color: #1a1a2e; color: #e0e0e0; font-size: 14px; margin: 0; padding: 0;">
+
+  <div style="padding: 24px;">
+    <h1 style="color: #4fc3f7; font-size: 22px; margin-bottom: 8px;">Responsive Layout Demo</h1>
+    <p style="color: #90a4ae; margin-bottom: 24px;">Testing flex wrap, percentage widths, and layout constraints.</p>
+
+    <!-- Flex Wrap: Color Palette -->
+    <div style="margin-bottom: 24px;">
+      <h2 style="color: #ab47bc; font-size: 16px; margin-bottom: 12px;">Flex Wrap - Color Palette</h2>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+        <div style="width: 80px; height: 60px; background-color: #ef5350; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: white;">Red</div>
+        <div style="width: 80px; height: 60px; background-color: #ec407a; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: white;">Pink</div>
+        <div style="width: 80px; height: 60px; background-color: #ab47bc; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: white;">Purple</div>
+        <div style="width: 80px; height: 60px; background-color: #5c6bc0; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: white;">Indigo</div>
+        <div style="width: 80px; height: 60px; background-color: #42a5f5; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: white;">Blue</div>
+        <div style="width: 80px; height: 60px; background-color: #26c6da; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: white;">Cyan</div>
+        <div style="width: 80px; height: 60px; background-color: #66bb6a; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: white;">Green</div>
+        <div style="width: 80px; height: 60px; background-color: #ffca28; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #333;">Yellow</div>
+        <div style="width: 80px; height: 60px; background-color: #ffa726; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: white;">Orange</div>
+        <div style="width: 80px; height: 60px; background-color: #8d6e63; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: white;">Brown</div>
+      </div>
+    </div>
+
+    <!-- Percentage Width Columns -->
+    <div style="margin-bottom: 24px;">
+      <h2 style="color: #ab47bc; font-size: 16px; margin-bottom: 12px;">Percentage Width Columns</h2>
+
+      <div style="display: flex; gap: 4px; margin-bottom: 8px;">
+        <div style="width: 100%; background-color: #0f3460; padding: 10px; border-radius: 4px; text-align: center; font-size: 12px; color: #4fc3f7;">100%</div>
+      </div>
+      <div style="display: flex; gap: 4px; margin-bottom: 8px;">
+        <div style="width: 50%; background-color: #0f3460; padding: 10px; border-radius: 4px; text-align: center; font-size: 12px; color: #ab47bc;">50%</div>
+        <div style="width: 50%; background-color: #0f3460; padding: 10px; border-radius: 4px; text-align: center; font-size: 12px; color: #ab47bc;">50%</div>
+      </div>
+      <div style="display: flex; gap: 4px; margin-bottom: 8px;">
+        <div style="width: 33%; background-color: #0f3460; padding: 10px; border-radius: 4px; text-align: center; font-size: 12px; color: #ff9800;">33%</div>
+        <div style="width: 33%; background-color: #0f3460; padding: 10px; border-radius: 4px; text-align: center; font-size: 12px; color: #ff9800;">33%</div>
+        <div style="width: 33%; background-color: #0f3460; padding: 10px; border-radius: 4px; text-align: center; font-size: 12px; color: #ff9800;">33%</div>
+      </div>
+      <div style="display: flex; gap: 4px; margin-bottom: 8px;">
+        <div style="width: 25%; background-color: #0f3460; padding: 10px; border-radius: 4px; text-align: center; font-size: 12px; color: #4caf50;">25%</div>
+        <div style="width: 25%; background-color: #0f3460; padding: 10px; border-radius: 4px; text-align: center; font-size: 12px; color: #4caf50;">25%</div>
+        <div style="width: 25%; background-color: #0f3460; padding: 10px; border-radius: 4px; text-align: center; font-size: 12px; color: #4caf50;">25%</div>
+        <div style="width: 25%; background-color: #0f3460; padding: 10px; border-radius: 4px; text-align: center; font-size: 12px; color: #4caf50;">25%</div>
+      </div>
+      <div style="display: flex; gap: 4px; margin-bottom: 8px;">
+        <div style="width: 70%; background-color: #0f3460; padding: 10px; border-radius: 4px; text-align: center; font-size: 12px; color: #ef5350;">70%</div>
+        <div style="width: 30%; background-color: #0f3460; padding: 10px; border-radius: 4px; text-align: center; font-size: 12px; color: #ef5350;">30%</div>
+      </div>
+    </div>
+
+    <!-- Nested Flex -->
+    <div style="margin-bottom: 24px;">
+      <h2 style="color: #ab47bc; font-size: 16px; margin-bottom: 12px;">Nested Flex Layouts</h2>
+      <div style="display: flex; gap: 12px;">
+        <!-- Sidebar -->
+        <div style="width: 200px; background-color: #16213e; border-radius: 8px; padding: 16px;">
+          <div style="color: #4fc3f7; font-weight: bold; margin-bottom: 12px;">Sidebar</div>
+          <div style="padding: 8px; background-color: #0f3460; border-radius: 4px; margin-bottom: 6px; font-size: 13px;">Dashboard</div>
+          <div style="padding: 8px; background-color: #533483; border-radius: 4px; margin-bottom: 6px; font-size: 13px; color: #4fc3f7;">Projects</div>
+          <div style="padding: 8px; background-color: #0f3460; border-radius: 4px; margin-bottom: 6px; font-size: 13px;">Settings</div>
+          <div style="padding: 8px; background-color: #0f3460; border-radius: 4px; font-size: 13px;">Help</div>
+        </div>
+
+        <!-- Main content area -->
+        <div style="flex: 1;">
+          <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+            <div style="flex: 1; background-color: #16213e; padding: 16px; border-radius: 8px;">
+              <div style="color: #4fc3f7; font-size: 20px; font-weight: bold;">42</div>
+              <div style="color: #90a4ae; font-size: 12px;">Open Tasks</div>
+            </div>
+            <div style="flex: 1; background-color: #16213e; padding: 16px; border-radius: 8px;">
+              <div style="color: #4caf50; font-size: 20px; font-weight: bold;">18</div>
+              <div style="color: #90a4ae; font-size: 12px;">Completed</div>
+            </div>
+            <div style="flex: 1; background-color: #16213e; padding: 16px; border-radius: 8px;">
+              <div style="color: #ff9800; font-size: 20px; font-weight: bold;">7</div>
+              <div style="color: #90a4ae; font-size: 12px;">In Review</div>
+            </div>
+          </div>
+
+          <div style="background-color: #16213e; padding: 16px; border-radius: 8px;">
+            <div style="color: #e0e0e0; font-weight: bold; margin-bottom: 12px;">Project List</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+              <div style="background-color: #0f3460; padding: 12px 16px; border-radius: 6px; border-left: 3px solid #4fc3f7;">
+                <div style="font-size: 13px; font-weight: bold;">MiniBrowser</div>
+                <div style="font-size: 11px; color: #90a4ae;">Rust/WASM</div>
+              </div>
+              <div style="background-color: #0f3460; padding: 12px 16px; border-radius: 6px; border-left: 3px solid #ab47bc;">
+                <div style="font-size: 13px; font-weight: bold;">API Server</div>
+                <div style="font-size: 11px; color: #90a4ae;">Go</div>
+              </div>
+              <div style="background-color: #0f3460; padding: 12px 16px; border-radius: 6px; border-left: 3px solid #ff9800;">
+                <div style="font-size: 13px; font-weight: bold;">Dashboard</div>
+                <div style="font-size: 11px; color: #90a4ae;">React</div>
+              </div>
+              <div style="background-color: #0f3460; padding: 12px 16px; border-radius: 6px; border-left: 3px solid #4caf50;">
+                <div style="font-size: 13px; font-weight: bold;">ML Pipeline</div>
+                <div style="font-size: 11px; color: #90a4ae;">Python</div>
+              </div>
+              <div style="background-color: #0f3460; padding: 12px 16px; border-radius: 6px; border-left: 3px solid #ef5350;">
+                <div style="font-size: 13px; font-weight: bold;">Mobile App</div>
+                <div style="font-size: 11px; color: #90a4ae;">Swift</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Flex Grow/Shrink -->
+    <div style="margin-bottom: 24px;">
+      <h2 style="color: #ab47bc; font-size: 16px; margin-bottom: 12px;">Flex Grow Distribution</h2>
+      <div style="display: flex; gap: 4px; margin-bottom: 8px;">
+        <div style="flex: 1; background-color: #4fc3f7; padding: 12px; border-radius: 4px; text-align: center; color: #1a1a2e; font-weight: bold;">flex:1</div>
+        <div style="flex: 1; background-color: #4fc3f7; padding: 12px; border-radius: 4px; text-align: center; color: #1a1a2e; font-weight: bold;">flex:1</div>
+        <div style="flex: 1; background-color: #4fc3f7; padding: 12px; border-radius: 4px; text-align: center; color: #1a1a2e; font-weight: bold;">flex:1</div>
+      </div>
+      <div style="display: flex; gap: 4px; margin-bottom: 8px;">
+        <div style="flex: 1; background-color: #ab47bc; padding: 12px; border-radius: 4px; text-align: center; color: white; font-weight: bold;">flex:1</div>
+        <div style="flex: 2; background-color: #ab47bc; padding: 12px; border-radius: 4px; text-align: center; color: white; font-weight: bold;">flex:2</div>
+        <div style="flex: 1; background-color: #ab47bc; padding: 12px; border-radius: 4px; text-align: center; color: white; font-weight: bold;">flex:1</div>
+      </div>
+      <div style="display: flex; gap: 4px;">
+        <div style="flex: 1; background-color: #ff9800; padding: 12px; border-radius: 4px; text-align: center; color: #1a1a2e; font-weight: bold;">flex:1</div>
+        <div style="flex: 3; background-color: #ff9800; padding: 12px; border-radius: 4px; text-align: center; color: #1a1a2e; font-weight: bold;">flex:3</div>
+      </div>
+    </div>
+
+    <!-- Min/Max Width Constraints -->
+    <div style="margin-bottom: 24px;">
+      <h2 style="color: #ab47bc; font-size: 16px; margin-bottom: 12px;">Width Constraints</h2>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="background-color: #16213e; padding: 12px; border-radius: 4px; width: 100%; max-width: 400px;">
+          <span style="color: #4fc3f7;">max-width: 400px</span> on 100% width
+        </div>
+        <div style="background-color: #16213e; padding: 12px; border-radius: 4px; width: 50%; min-width: 250px;">
+          <span style="color: #ab47bc;">min-width: 250px</span> on 50% width
+        </div>
+        <div style="background-color: #16213e; padding: 12px; border-radius: 4px; width: 80%;">
+          <span style="color: #ff9800;">width: 80%</span> no constraints
+        </div>
+        <div style="background-color: #16213e; padding: 12px; border-radius: 4px; width: 30%; min-width: 200px; max-width: 350px;">
+          <span style="color: #4caf50;">min: 200px, max: 350px</span> on 30% width
+        </div>
+      </div>
+    </div>
+
+  </div>
+</body></html>

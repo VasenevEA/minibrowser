@@ -1,0 +1,110 @@
+<!-- Demo 19: Form Layout -->
+<html><body style="background-color: #1a1a2e; color: #e0e0e0; font-size: 14px; margin: 0; padding: 0;">
+
+  <div style="padding: 32px 40px; max-width: 600px;">
+    <h1 style="color: #4fc3f7; font-size: 24px; margin-bottom: 8px;">Create Account</h1>
+    <p style="color: #90a4ae; margin-bottom: 24px;">Fill out the form below to get started.</p>
+
+    <!-- Personal Info Fieldset -->
+    <div style="border: 1px solid #533483; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+      <div style="color: #ab47bc; font-size: 13px; font-weight: bold; margin-bottom: 16px;">PERSONAL INFORMATION</div>
+
+      <div style="display: flex; gap: 16px; margin-bottom: 16px;">
+        <div style="flex: 1;">
+          <div style="color: #90a4ae; font-size: 12px; margin-bottom: 4px;">First Name</div>
+          <input id="fname" type="text" placeholder="John" style="width: 100%; background-color: #0f3460; border: 1px solid #533483; color: #e0e0e0; padding: 10px 12px; border-radius: 4px; font-size: 14px;">
+        </div>
+        <div style="flex: 1;">
+          <div style="color: #90a4ae; font-size: 12px; margin-bottom: 4px;">Last Name</div>
+          <input id="lname" type="text" placeholder="Doe" style="width: 100%; background-color: #0f3460; border: 1px solid #533483; color: #e0e0e0; padding: 10px 12px; border-radius: 4px; font-size: 14px;">
+        </div>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <div style="color: #90a4ae; font-size: 12px; margin-bottom: 4px;">Email Address</div>
+        <input id="email" type="text" placeholder="john@example.com" style="width: 100%; background-color: #0f3460; border: 1px solid #533483; color: #e0e0e0; padding: 10px 12px; border-radius: 4px; font-size: 14px;">
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <div style="color: #90a4ae; font-size: 12px; margin-bottom: 4px;">Phone Number</div>
+        <input id="phone" type="text" placeholder="+1 (555) 123-4567" style="width: 100%; background-color: #0f3460; border: 1px solid #533483; color: #e0e0e0; padding: 10px 12px; border-radius: 4px; font-size: 14px;">
+      </div>
+    </div>
+
+    <!-- Account Details Fieldset -->
+    <div style="border: 1px solid #533483; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+      <div style="color: #ab47bc; font-size: 13px; font-weight: bold; margin-bottom: 16px;">ACCOUNT DETAILS</div>
+
+      <div style="margin-bottom: 16px;">
+        <div style="color: #90a4ae; font-size: 12px; margin-bottom: 4px;">Username</div>
+        <input id="username" type="text" placeholder="johndoe" style="width: 100%; background-color: #0f3460; border: 1px solid #533483; color: #e0e0e0; padding: 10px 12px; border-radius: 4px; font-size: 14px;">
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <div style="color: #90a4ae; font-size: 12px; margin-bottom: 4px;">Password</div>
+        <input id="password" type="text" placeholder="Min 8 characters" style="width: 100%; background-color: #0f3460; border: 1px solid #533483; color: #e0e0e0; padding: 10px 12px; border-radius: 4px; font-size: 14px;">
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <div style="color: #90a4ae; font-size: 12px; margin-bottom: 4px;">Confirm Password</div>
+        <input id="confirm" type="text" placeholder="Repeat password" style="width: 100%; background-color: #0f3460; border: 1px solid #533483; color: #e0e0e0; padding: 10px 12px; border-radius: 4px; font-size: 14px;">
+      </div>
+
+      <!-- Role Selection -->
+      <div style="margin-bottom: 16px;">
+        <div style="color: #90a4ae; font-size: 12px; margin-bottom: 8px;">Account Type</div>
+        <div style="display: flex; gap: 12px;">
+          <div style="flex: 1; background-color: #0f3460; border: 2px solid #4fc3f7; padding: 12px; border-radius: 6px; text-align: center;">
+            <div style="color: #4fc3f7; font-weight: bold; font-size: 14px;">Developer</div>
+            <div style="color: #90a4ae; font-size: 11px;">Full API access</div>
+          </div>
+          <div style="flex: 1; background-color: #0f3460; border: 1px solid #533483; padding: 12px; border-radius: 6px; text-align: center;">
+            <div style="color: #e0e0e0; font-weight: bold; font-size: 14px;">Designer</div>
+            <div style="color: #90a4ae; font-size: 11px;">Read-only access</div>
+          </div>
+          <div style="flex: 1; background-color: #0f3460; border: 1px solid #533483; padding: 12px; border-radius: 6px; text-align: center;">
+            <div style="color: #e0e0e0; font-weight: bold; font-size: 14px;">Admin</div>
+            <div style="color: #90a4ae; font-size: 11px;">Everything</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Preferences -->
+    <div style="border: 1px solid #533483; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+      <div style="color: #ab47bc; font-size: 13px; font-weight: bold; margin-bottom: 16px;">PREFERENCES</div>
+
+      <div style="margin-bottom: 12px;">
+        <div style="color: #90a4ae; font-size: 12px; margin-bottom: 4px;">Bio</div>
+        <textarea id="bio" placeholder="Tell us about yourself..." style="width: 100%; height: 80px; background-color: #0f3460; border: 1px solid #533483; color: #e0e0e0; padding: 10px 12px; border-radius: 4px; font-size: 14px;"></textarea>
+      </div>
+
+      <!-- Toggle-like checkboxes (visual only) -->
+      <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #0f3460;">
+        <span>Email notifications</span>
+        <div style="width: 40px; height: 20px; background-color: #4caf50; border-radius: 10px; display: flex; align-items: center; justify-content: flex-end; padding: 2px;">
+          <div style="width: 16px; height: 16px; background-color: white; border-radius: 8px;"></div>
+        </div>
+      </div>
+      <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #0f3460;">
+        <span>Marketing emails</span>
+        <div style="width: 40px; height: 20px; background-color: #533483; border-radius: 10px; display: flex; align-items: center; padding: 2px;">
+          <div style="width: 16px; height: 16px; background-color: #90a4ae; border-radius: 8px;"></div>
+        </div>
+      </div>
+      <div style="display: flex; justify-content: space-between; padding: 10px 0;">
+        <span>Two-factor auth</span>
+        <div style="width: 40px; height: 20px; background-color: #4caf50; border-radius: 10px; display: flex; align-items: center; justify-content: flex-end; padding: 2px;">
+          <div style="width: 16px; height: 16px; background-color: white; border-radius: 8px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Buttons -->
+    <div style="display: flex; gap: 12px; justify-content: flex-end;">
+      <div style="border: 1px solid #533483; color: #90a4ae; padding: 10px 24px; border-radius: 6px;">Cancel</div>
+      <div style="background-color: #4fc3f7; color: #1a1a2e; padding: 10px 24px; border-radius: 6px; font-weight: bold;">Create Account</div>
+    </div>
+  </div>
+
+</body></html>

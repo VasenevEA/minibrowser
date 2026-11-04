@@ -1,0 +1,76 @@
+<html>
+<head>
+<style>
+body { background: #1a1a2e; color: #e0e0e0; font-size: 14px; margin: 0; padding: 0; }
+.fixed-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  background: #16213e;
+  padding: 10px 20px;
+  border-bottom: 2px solid #4fc3f7;
+  color: #4fc3f7;
+  font-size: 18px;
+}
+.content { padding: 60px 20px 20px 20px; }
+.relative-box {
+  position: relative;
+  background: #263238;
+  padding: 15px;
+  margin: 10px 0;
+  border-radius: 8px;
+}
+.badge {
+  position: relative;
+  top: -5px;
+  left: 10px;
+  background: #c62828;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.card-grid { display: grid; grid-template-columns: 1fr 1fr; grid-gap: 10px; margin: 15px 0; }
+.card {
+  background: #263238;
+  padding: 15px;
+  border-radius: 8px;
+  border: 1px solid #37474f;
+}
+</style>
+</head>
+<body>
+  <div class="fixed-header">MiniBrowser — Fixed Header Demo</div>
+
+  <div class="content">
+    <h1 style="color: #4fc3f7;">Position Demo</h1>
+    <p style="color: #90a4ae;">The header above is position:fixed — it stays at the top when scrolling.</p>
+
+    <div class="relative-box">
+      <span>Notification</span>
+      <span class="badge">NEW</span>
+      <p style="color: #90a4ae; margin: 5px 0 0 0;">The "NEW" badge uses position:relative with top:-5px</p>
+    </div>
+
+    <div class="card-grid">
+      <div class="card">
+        <div style="color: #4fc3f7;">Card 1</div>
+        <div style="color: #90a4ae; font-size: 12px;">CSS Grid + border-radius</div>
+      </div>
+      <div class="card">
+        <div style="color: #4fc3f7;">Card 2</div>
+        <div style="color: #90a4ae; font-size: 12px;">With border styling</div>
+      </div>
+      <div class="card">
+        <div style="color: #66bb6a;">Card 3</div>
+        <div style="color: #90a4ae; font-size: 12px;">More content here</div>
+      </div>
+      <div class="card">
+        <div style="color: #ff7043;">Card 4</div>
+        <div style="color: #90a4ae; font-size: 12px;">Grid auto-flow</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

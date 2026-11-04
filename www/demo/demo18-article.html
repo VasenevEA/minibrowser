@@ -1,0 +1,131 @@
+<!-- Demo 18: Article / Blog Layout -->
+<html><body style="background-color: #1a1a2e; color: #e0e0e0; font-size: 16px; margin: 0; padding: 0;">
+
+  <!-- Article Header -->
+  <div style="background-color: #0f3460; padding: 40px; border-bottom: 2px solid #533483;">
+    <div style="max-width: 700px;">
+      <div style="color: #ab47bc; font-size: 13px; font-weight: bold; margin-bottom: 8px;">ENGINEERING BLOG</div>
+      <h1 style="color: #e0e0e0; font-size: 32px; margin-bottom: 16px;">Building a Browser Engine in Rust and WASM</h1>
+      <p style="color: #90a4ae; font-size: 15px; margin-bottom: 20px;">
+        A deep dive into how we built a from-scratch browser engine that runs entirely in WebAssembly.
+      </p>
+      <div style="display: flex; gap: 16px; align-items: center;">
+        <div style="width: 40px; height: 40px; background-color: #533483; border-radius: 20px; display: flex; align-items: center; justify-content: center; color: #e0e0e0; font-size: 14px; font-weight: bold;">MR</div>
+        <div>
+          <div style="font-size: 14px; font-weight: bold;">Max Riabkov</div>
+          <div style="font-size: 12px; color: #90a4ae;">April 7, 2026 -- 12 min read</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Article Body -->
+  <div style="padding: 32px 40px; max-width: 700px;">
+
+    <h2 style="color: #4fc3f7; font-size: 22px; margin-bottom: 12px;">Introduction</h2>
+    <p style="color: #b0bec5; line-height: 1.7; margin-bottom: 16px;">
+      Modern web browsers are among the most complex pieces of software ever built. Chrome alone has
+      over 30 million lines of code. But what if we stripped it all down to the essentials? What does
+      a minimal browser engine look like?
+    </p>
+    <p style="color: #b0bec5; line-height: 1.7; margin-bottom: 24px;">
+      That is the question that led to MiniBrowser, a toy browser engine written in Rust that compiles
+      to WebAssembly and renders HTML/CSS to a canvas element. It is not meant to replace Chrome but rather
+      to explore the fundamental algorithms behind web rendering.
+    </p>
+
+    <h2 style="color: #4fc3f7; font-size: 22px; margin-bottom: 12px;">The Rendering Pipeline</h2>
+    <p style="color: #b0bec5; line-height: 1.7; margin-bottom: 16px;">
+      Every browser engine follows roughly the same pipeline. Here is ours, simplified:
+    </p>
+
+    <!-- Code Block -->
+    <div style="background-color: #0d1b2a; padding: 16px 20px; border-radius: 6px; margin-bottom: 20px; border-left: 3px solid #4fc3f7; font-size: 14px;">
+      <div style="color: #4fc3f7; font-size: 12px; margin-bottom: 8px;">PIPELINE</div>
+      <div style="color: #90caf9;">HTML String</div>
+      <div style="color: #90a4ae;">  |  html5ever</div>
+      <div style="color: #90caf9;">DOM Tree</div>
+      <div style="color: #90a4ae;">  |  cssparser + cascade</div>
+      <div style="color: #90caf9;">Styled Tree</div>
+      <div style="color: #90a4ae;">  |  layout algorithm</div>
+      <div style="color: #90caf9;">Layout Boxes</div>
+      <div style="color: #90a4ae;">  |  tiny-skia + fontdue</div>
+      <div style="color: #90caf9;">Pixel Buffer</div>
+    </div>
+
+    <h2 style="color: #4fc3f7; font-size: 22px; margin-bottom: 12px;">Layout: The Hard Part</h2>
+    <p style="color: #b0bec5; line-height: 1.7; margin-bottom: 16px;">
+      Layout is where the real complexity lives. CSS specifies dozens of layout modes, each with
+      intricate rules for sizing and positioning. MiniBrowser supports the three most important ones:
+    </p>
+
+    <div style="padding-left: 20px; margin-bottom: 20px;">
+      <div style="margin-bottom: 8px;">
+        <span style="color: #4fc3f7; font-weight: bold;">Block layout</span>
+        <span style="color: #90a4ae;"> -- Elements stack vertically, filling their container width.</span>
+      </div>
+      <div style="margin-bottom: 8px;">
+        <span style="color: #ab47bc; font-weight: bold;">Flex layout</span>
+        <span style="color: #90a4ae;"> -- Items flow along a main axis with flexible sizing.</span>
+      </div>
+      <div style="margin-bottom: 8px;">
+        <span style="color: #ff9800; font-weight: bold;">Grid layout</span>
+        <span style="color: #90a4ae;"> -- Two-dimensional layout with tracks and cells.</span>
+      </div>
+    </div>
+
+    <!-- Blockquote -->
+    <div style="background-color: #16213e; border-left: 4px solid #ab47bc; padding: 16px 20px; margin-bottom: 24px; border-radius: 0 6px 6px 0;">
+      <p style="color: #ce93d8; font-style: italic; font-size: 15px;">
+        "The web is not just about documents anymore. It is an application platform, and layout
+        algorithms are the foundation of that platform."
+      </p>
+      <p style="color: #90a4ae; font-size: 13px; margin-top: 8px;">-- CSS Working Group, 2023</p>
+    </div>
+
+    <h2 style="color: #4fc3f7; font-size: 22px; margin-bottom: 12px;">Painting Pixels</h2>
+    <p style="color: #b0bec5; line-height: 1.7; margin-bottom: 16px;">
+      Once layout is complete, we have a tree of boxes with absolute positions and dimensions.
+      The paint phase walks this tree and draws each box onto a pixel buffer using tiny-skia,
+      a pure-Rust 2D rendering library.
+    </p>
+
+    <!-- Another Code Block -->
+    <div style="background-color: #0d1b2a; padding: 16px 20px; border-radius: 6px; margin-bottom: 20px; border-left: 3px solid #ab47bc; font-size: 13px;">
+      <div style="color: #ab47bc; font-size: 12px; margin-bottom: 8px;">rust</div>
+      <div style="color: #e0e0e0;">fn paint_box(pixmap: &amp;mut Pixmap, lb: &amp;LayoutBox) {</div>
+      <div style="color: #e0e0e0;">    paint_background(pixmap, lb);</div>
+      <div style="color: #e0e0e0;">    paint_borders(pixmap, lb);</div>
+      <div style="color: #e0e0e0;">    paint_text(pixmap, lb);</div>
+      <div style="color: #e0e0e0;">    for child in &amp;lb.children {</div>
+      <div style="color: #e0e0e0;">        paint_box(pixmap, child);</div>
+      <div style="color: #e0e0e0;">    }</div>
+      <div style="color: #e0e0e0;">}</div>
+    </div>
+
+    <h2 style="color: #4fc3f7; font-size: 22px; margin-bottom: 12px;">What is Next</h2>
+    <p style="color: #b0bec5; line-height: 1.7; margin-bottom: 16px;">
+      MiniBrowser is a work in progress. On the roadmap: inline layout improvements, CSS transforms,
+      image loading from URLs, and better text shaping. The goal is not completeness but rather a clear,
+      educational implementation of browser fundamentals.
+    </p>
+    <p style="color: #b0bec5; line-height: 1.7; margin-bottom: 24px;">
+      If you are interested in browser internals, clone the repo and start experimenting.
+      The entire engine is under 3,000 lines of Rust.
+    </p>
+
+    <!-- Tags -->
+    <div style="display: flex; gap: 8px; margin-bottom: 24px;">
+      <span style="background-color: #16213e; color: #4fc3f7; padding: 4px 12px; border-radius: 12px; font-size: 12px;">Rust</span>
+      <span style="background-color: #16213e; color: #ab47bc; padding: 4px 12px; border-radius: 12px; font-size: 12px;">WASM</span>
+      <span style="background-color: #16213e; color: #ff9800; padding: 4px 12px; border-radius: 12px; font-size: 12px;">Browser Engine</span>
+      <span style="background-color: #16213e; color: #4caf50; padding: 4px 12px; border-radius: 12px; font-size: 12px;">CSS Layout</span>
+    </div>
+
+    <!-- Divider -->
+    <div style="border-top: 1px solid #533483; padding-top: 20px; color: #90a4ae; font-size: 13px;">
+      Thanks for reading. Questions or feedback? Open an issue on GitHub.
+    </div>
+  </div>
+
+</body></html>

@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MiniBrowser — Rust Browser Engine</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #1a1a2e;
+    color: #e0e0e0;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    background: #16213e;
+    border-bottom: 1px solid #0f3460;
+    padding: 12px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .logo {
+    font-size: 20px;
+    font-weight: bold;
+    color: #4fc3f7;
+    letter-spacing: 1px;
+  }
+
+  .logo span {
+    color: #e0e0e0;
+    font-weight: normal;
+    font-size: 13px;
+    opacity: 0.6;
+  }
+
+  .url-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .url-input {
+    flex: 1;
+    background: #0f3460;
+    border: 1px solid #533483;
+    color: #e0e0e0;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 13px;
+    outline: none;
+  }
+
+  .url-input:focus {
+    border-color: #4fc3f7;
+  }
+
+  .btn {
+    background: #533483;
+    color: #e0e0e0;
+    border: 1px solid #6a3fa0;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    transition: background 0.15s;
+  }
+
+  .btn:hover {
+    background: #6a3fa0;
+  }
+
+  .btn.active {
+    background: #4fc3f7;
+    color: #1a1a2e;
+    border-color: #4fc3f7;
+  }
+
+  .preset-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .main-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .split-view {
+    flex: 1;
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    overflow: hidden;
+  }
+
+  .pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #16213e;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .pane-header {
+    background: #0f3460;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: #90a4ae;
+    border-bottom: 1px solid #533483;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .pane-header .badge {
+    background: #533483;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+  }
+
+  .pane-body {
+    flex: 1;
+    position: relative;
+    overflow: auto;
+  }
+
+  #mb-canvas {
+    display: block;
+    background: #fff;
+  }
+
+  #ref-iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: #fff;
+  }
+
+  /* Mobile: tab view instead of split */
+  .view-tabs {
+    display: none;
+    gap: 4px;
+    padding: 4px 8px;
+    background: #0f3460;
+  }
+  .view-tabs button {
+    flex: 1;
+    padding: 6px;
+    background: #16213e;
+    color: #90a4ae;
+    border: 1px solid #533483;
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .view-tabs button.active {
+    background: #533483;
+    color: #e0e0e0;
+  }
+
+  @media (max-width: 768px) {
+    .split-view { flex-direction: column; }
+    .preset-row { flex-wrap: wrap; }
+    .preset-row .btn { font-size: 11px; padding: 6px 10px; }
+    header { padding: 8px 12px; gap: 6px; }
+    .logo { font-size: 16px; }
+    footer { flex-wrap: wrap; gap: 8px 16px; }
+  }
+
+  /* Inline HTML editor overlay */
+  .editor-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 100;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .editor-overlay.visible {
+    display: flex;
+  }
+
+  .editor-panel {
+    background: #16213e;
+    border: 1px solid #533483;
+    border-radius: 8px;
+    width: 700px;
+    max-width: 90vw;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .editor-panel-header {
+    padding: 12px 16px;
+    background: #0f3460;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .editor-panel-header h3 {
+    font-size: 14px;
+    color: #4fc3f7;
+  }
+
+  #html-editor {
+    flex: 1;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    border: none;
+    padding: 12px;
+    font-family: inherit;
+    font-size: 13px;
+    resize: none;
+    outline: none;
+    min-height: 300px;
+  }
+
+  .editor-panel-footer {
+    padding: 10px 16px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  footer {
+    background: #16213e;
+    border-top: 1px solid #0f3460;
+    padding: 8px 20px;
+    display: flex;
+    gap: 24px;
+    font-size: 12px;
+    color: #90a4ae;
+  }
+
+  footer .stat {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  footer .stat-value {
+    color: #4fc3f7;
+    font-weight: bold;
+  }
+
+  .error-msg {
+    color: #ef5350;
+    font-size: 12px;
+    padding: 4px 0;
+    display: none;
+  }
+
+  .error-msg.visible {
+    display: block;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="title-row">
+    <div class="logo">minibrowser <span>v0.7</span></div>
+    <div id="error-bar" class="error-msg"></div>
+  </div>
+  <div class="url-row">
+    <input id="url-input" class="url-input" type="text"
+           placeholder="Enter URL to render (e.g., demo/demo1.html)" value="demo/demo1.html">
+    <button id="btn-go" class="btn">Go</button>
+  </div>
+  <div class="preset-row">
+    <button class="btn preset-btn" data-url="demo/demo1.html">Demo 1 — Blocks</button>
+    <button class="btn preset-btn" data-url="demo/demo2.html">Demo 2 — Typography</button>
+    <button class="btn preset-btn" data-url="demo/demo3.html">Demo 3 — HMI Dashboard</button>
+    <button class="btn preset-btn" data-url="demo/demo4-js.html">Demo 4 — JS</button>
+    <button class="btn preset-btn" data-url="demo/demo5-js-clock.html">Demo 5 — Clock</button>
+    <button class="btn preset-btn" data-url="demo/demo6-js-counter.html">Demo 6 — Counter</button>
+    <button class="btn preset-btn" data-url="demo/demo7-js-todo.html">Demo 7 — Todo</button>
+    <button class="btn preset-btn" data-url="demo/demo8-js-hmi.html">Demo 8 — HMI Panel</button>
+    <button class="btn preset-btn" data-url="demo/demo9-interactive.html">Demo 9 — Interactive</button>
+    <button class="btn preset-btn" data-url="demo/demo10-css.html">Demo 10 — CSS</button>
+    <button class="btn preset-btn" data-url="demo/demo11-canvas.html">Demo 11 — Canvas</button>
+    <button class="btn preset-btn" data-url="demo/demo12-images.html">Demo 12 — Images</button>
+    <button class="btn preset-btn" data-url="demo/demo13-grid.html">Demo 13 — Grid</button>
+    <button class="btn preset-btn" data-url="demo/demo14-position.html">Demo 14 — Position</button>
+    <button class="btn preset-btn" data-url="demo/demo15-canvas2d.html">Demo 15 — Canvas2D</button>
+    <button class="btn preset-btn" data-url="demo/demo16-landing.html">Demo 16 — Landing</button>
+    <button class="btn preset-btn" data-url="demo/demo17-dashboard.html">Demo 17 — Dashboard</button>
+    <button class="btn preset-btn" data-url="demo/demo18-article.html">Demo 18 — Article</button>
+    <button class="btn preset-btn" data-url="demo/demo19-form.html">Demo 19 — Form</button>
+    <button class="btn preset-btn" data-url="demo/demo20-responsive.html">Demo 20 — Responsive</button>
+    <button id="btn-inline" class="btn">Inline HTML</button>
+  </div>
+</header>
+
+<div class="main-area">
+  <div class="view-tabs">
+    <button class="tab-btn active" data-pane="canvas-pane">MiniBrowser</button>
+    <button class="tab-btn" data-pane="ref-pane">Reference</button>
+  </div>
+  <div class="split-view">
+    <div class="pane active" id="canvas-pane">
+      <div class="pane-header">
+        <span>minibrowser rendering</span>
+        <span class="badge">canvas</span>
+      </div>
+      <div class="pane-body">
+        <canvas id="mb-canvas" width="800" height="600"></canvas>
+      </div>
+    </div>
+    <div class="pane" id="ref-pane">
+      <div class="pane-header">
+        <span>Browser reference</span>
+        <span class="badge">iframe</span>
+      </div>
+      <div class="pane-body">
+        <iframe id="ref-iframe" sandbox="allow-same-origin allow-scripts"></iframe>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="stat">Render time: <span id="stat-time" class="stat-value">—</span></div>
+  <div class="stat">DOM nodes: <span id="stat-nodes" class="stat-value">—</span></div>
+  <div class="stat">Layout boxes: <span id="stat-boxes" class="stat-value">—</span></div>
+  <div class="stat">Canvas: <span id="stat-canvas" class="stat-value">800 x 600</span></div>
+</footer>
+
+<!-- Inline HTML editor overlay -->
+<div id="editor-overlay" class="editor-overlay">
+  <div class="editor-panel">
+    <div class="editor-panel-header">
+      <h3>Inline HTML Editor</h3>
+      <button id="btn-editor-close" class="btn">Close</button>
+    </div>
+    <textarea id="html-editor"><html><body style="background-color: #1a1a2e; color: #e0e0e0; font-size: 16px; padding: 20px;">
+  <h1 style="color: #4fc3f7;">Hello from MiniBrowser!</h1>
+  <p>This is inline HTML rendered by the Rust browser engine.</p>
+  <div style="background-color: #2d2d44; padding: 15px; margin: 10px 0;">
+    <p>A styled box with padding and margin.</p>
+  </div>
+  <div style="display: flex; gap: 10px;">
+    <div style="background-color: #c62828; width: 80px; height: 80px; padding: 10px; color: white;">R</div>
+    <div style="background-color: #2e7d32; width: 80px; height: 80px; padding: 10px; color: white;">G</div>
+    <div style="background-color: #1565c0; width: 80px; height: 80px; padding: 10px; color: white;">B</div>
+  </div>
+</body></html></textarea>
+    <div class="editor-panel-footer">
+      <button id="btn-render-inline" class="btn active">Render</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import init, { init as engineInit, render_html, render_html_live, render_url, click_at, key_press, get_focused_input, scroll as wasmScroll, get_image_urls, preload_image } from './minibrowser.js';
+
+  const urlInput    = document.getElementById('url-input');
+  const btnGo       = document.getElementById('btn-go');
+  const btnInline   = document.getElementById('btn-inline');
+  const canvas      = document.getElementById('mb-canvas');
+  const iframe      = document.getElementById('ref-iframe');
+  const statTime    = document.getElementById('stat-time');
+  const statNodes   = document.getElementById('stat-nodes');
+  const statBoxes   = document.getElementById('stat-boxes');
+  const statCanvas  = document.getElementById('stat-canvas');
+  const errorBar    = document.getElementById('error-bar');
+  const overlay     = document.getElementById('editor-overlay');
+  const editor      = document.getElementById('html-editor');
+  const btnRender   = document.getElementById('btn-render-inline');
+  const btnClose    = document.getElementById('btn-editor-close');
+  const presetBtns  = document.querySelectorAll('.preset-btn');
+
+  let wasmReady = false;
+  const imageLoadingSet = new Set(); // URLs currently being fetched
+
+  async function fetchAndCacheImages(renderFn) {
+    const urls = get_image_urls();
+    if (!urls || urls.length === 0) return;
+
+    const toFetch = urls.filter(u => !imageLoadingSet.has(u));
+    if (toFetch.length === 0) return;
+
+    toFetch.forEach(u => imageLoadingSet.add(u));
+
+    let loaded = 0;
+    await Promise.all(toFetch.map(async (url) => {
+      try {
+        // Route external URLs through CORS proxy
+        const fetchUrl = (url.startsWith('http://') || url.startsWith('https://'))
+          ? `/proxy?url=${encodeURIComponent(url)}`
+          : url;
+        const resp = await fetch(fetchUrl);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const buf = await resp.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        const ok = preload_image(url, bytes);
+        if (ok) loaded++;
+      } catch (e) {
+        console.warn('Image fetch failed:', url, e);
+      } finally {
+        imageLoadingSet.delete(url);
+      }
+    }));
+
+    // Re-render if we loaded any images
+    if (loaded > 0 && renderFn) {
+      renderFn();
+    }
+  }
+
+  function showError(msg) {
+    errorBar.textContent = msg;
+    errorBar.classList.add('visible');
+    setTimeout(() => errorBar.classList.remove('visible'), 5000);
+  }
+
+  function clearError() {
+    errorBar.classList.remove('visible');
+  }
+
+  function updateStats(stats, elapsed) {
+    statTime.textContent = elapsed.toFixed(1) + ' ms';
+    if (stats) {
+      statNodes.textContent = stats.nodeCount || '—';
+      statBoxes.textContent = stats.boxCount || '—';
+    }
+    statCanvas.textContent = canvas.width + ' x ' + canvas.height;
+  }
+
+  function resizeCanvas() {
+    const pane = canvas.closest('.pane-body');
+    if (pane) {
+      const rect = pane.getBoundingClientRect();
+      canvas.width = Math.floor(rect.width);
+      canvas.height = Math.floor(rect.height);
+      statCanvas.textContent = canvas.width + ' x ' + canvas.height;
+    }
+  }
+
+  async function doRenderUrl(url) {
+    if (!wasmReady) { showError('WASM not loaded yet'); return; }
+    clearError();
+    resizeCanvas();
+
+    lastRenderedUrl = url;
+    lastRenderedHtml = null;
+
+    // For external URLs, route through the CORS proxy for minibrowser rendering
+    const fetchUrl = url.startsWith('http://') || url.startsWith('https://')
+      ? `/proxy?url=${encodeURIComponent(url)}`
+      : url;
+
+    // Stop any previous live render
+    if (liveInterval) { clearInterval(liveInterval); liveInterval = null; }
+
+    const t0 = performance.now();
+    try {
+      // Fetch HTML for re-rendering support
+      const resp = await fetch(fetchUrl);
+      lastFetchedHtml = await resp.text();
+
+      const stats = render_html('mb-canvas', lastFetchedHtml);
+      const elapsed = performance.now() - t0;
+      updateStats(stats, elapsed);
+
+      // Fetch any images found during render
+      const html2 = lastFetchedHtml;
+      fetchAndCacheImages(() => {
+        try { render_html('mb-canvas', html2); } catch(e) {}
+      });
+
+      // If page has scripts with timers, enable live re-render
+      if (lastFetchedHtml.includes('setInterval') || lastFetchedHtml.includes('setTimeout') || lastFetchedHtml.includes('Date')) {
+        liveInterval = setInterval(() => {
+          try {
+            render_html_live('mb-canvas', lastFetchedHtml);
+          } catch(e) {}
+        }, 1000);
+      }
+    } catch (e) {
+      showError('render_url error: ' + e);
+    }
+
+    // Set iframe to original URL (clear srcdoc first so src takes effect)
+    iframe.removeAttribute('srcdoc');
+    iframe.src = url;
+  }
+
+  function doRenderHtml(html) {
+    if (!wasmReady) { showError('WASM not loaded yet'); return; }
+    clearError();
+    resizeCanvas();
+
+    if (liveInterval) { clearInterval(liveInterval); liveInterval = null; }
+
+    lastRenderedHtml = html;
+    lastRenderedUrl = null;
+    lastFetchedHtml = html;
+
+    const t0 = performance.now();
+    try {
+      const stats = render_html('mb-canvas', html);
+      const elapsed = performance.now() - t0;
+      updateStats(stats, elapsed);
+
+      // Fetch any images found during render
+      const html2 = html;
+      fetchAndCacheImages(() => {
+        try { render_html('mb-canvas', html2); } catch(e) {}
+      });
+
+      if (html.includes('setInterval') || html.includes('setTimeout') || html.includes('Date')) {
+        liveInterval = setInterval(() => {
+          try { render_html_live('mb-canvas', html); } catch(e) {}
+        }, 1000);
+      }
+    } catch (e) {
+      showError('render_html error: ' + e);
+    }
+
+    // Set iframe srcdoc (clear src first)
+    iframe.removeAttribute('src');
+    iframe.srcdoc = html;
+  }
+
+  // --- Event handlers ---
+
+  btnGo.addEventListener('click', () => {
+    const url = urlInput.value.trim();
+    if (url) doRenderUrl(url);
+  });
+
+  urlInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const url = urlInput.value.trim();
+      if (url) doRenderUrl(url);
+    }
+  });
+
+  presetBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const url = btn.dataset.url;
+      urlInput.value = url;
+      doRenderUrl(url);
+    });
+  });
+
+  btnInline.addEventListener('click', () => {
+    overlay.classList.add('visible');
+  });
+
+  btnClose.addEventListener('click', () => {
+    overlay.classList.remove('visible');
+  });
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.classList.remove('visible');
+  });
+
+  btnRender.addEventListener('click', () => {
+    const html = editor.value;
+    overlay.classList.remove('visible');
+    doRenderHtml(html);
+  });
+
+  // --- Canvas click handler for interactivity (v0.5) ---
+  canvas.addEventListener('click', (e) => {
+    if (!wasmReady) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const stats = click_at('mb-canvas', x, y);
+    if (stats) {
+      updateStats(stats, stats.renderTime || 0);
+    }
+  });
+
+  // --- Scroll handler ---
+  canvas.addEventListener('wheel', (e) => {
+    if (!wasmReady) return;
+    e.preventDefault();
+    wasmScroll('mb-canvas', e.deltaX, e.deltaY);
+  }, { passive: false });
+
+  // Touch scroll support
+  let touchStartY = 0;
+  canvas.addEventListener('touchstart', (e) => {
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+  }, { passive: true });
+  let touchStartX = 0;
+  canvas.addEventListener('touchmove', (e) => {
+    if (!wasmReady) return;
+    const deltaX = touchStartX - e.touches[0].clientX;
+    const deltaY = touchStartY - e.touches[0].clientY;
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    wasmScroll('mb-canvas', deltaX, deltaY);
+    e.preventDefault();
+  }, { passive: false });
+
+  // --- Keyboard handler for input elements ---
+  document.addEventListener('keydown', (e) => {
+    if (!wasmReady) return;
+    const focused = get_focused_input();
+    if (!focused) return;
+
+    // Prevent default for keys we handle
+    if (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Enter') {
+      e.preventDefault();
+      const stats = key_press('mb-canvas', e.key);
+      if (stats) {
+        updateStats(stats, stats.renderTime || 0);
+      }
+    }
+  });
+
+  // --- Mobile tab switching ---
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.pane).classList.add('active');
+      // Resize canvas after tab switch
+      setTimeout(() => {
+        resizeCanvas();
+        if (wasmReady && lastRenderedUrl) doRenderUrl(lastRenderedUrl);
+        else if (wasmReady && lastRenderedHtml) doRenderHtml(lastRenderedHtml);
+      }, 100);
+    });
+  });
+
+  // Change cursor to pointer when hovering over clickable regions
+  canvas.style.cursor = 'default';
+
+  let lastRenderedUrl = null;
+  let lastRenderedHtml = null;
+  let lastFetchedHtml = null; // raw HTML for re-rendering
+  let liveInterval = null;
+
+  window.addEventListener('resize', () => {
+    resizeCanvas();
+    // Re-render after resize
+    if (wasmReady) {
+      if (lastRenderedUrl) doRenderUrl(lastRenderedUrl);
+      else if (lastRenderedHtml) doRenderHtml(lastRenderedHtml);
+    }
+  });
+
+  // --- Init ---
+  async function start() {
+    try {
+      await init();
+      engineInit();
+      wasmReady = true;
+
+      resizeCanvas();
+
+      // Auto-load demo1 on start
+      doRenderUrl('demo/demo1.html');
+    } catch (e) {
+      showError('Failed to load WASM: ' + e);
+      console.error('WASM init error:', e);
+    }
+  }
+
+  start();
+</script>
+</body>
+</html>

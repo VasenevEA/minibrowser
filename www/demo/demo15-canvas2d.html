@@ -1,0 +1,56 @@
+<html>
+<head>
+<style>
+body { background: #1a1a2e; color: #e0e0e0; padding: 20px; font-size: 14px; margin: 0; }
+h1 { color: #4fc3f7; }
+.info { color: #90a4ae; margin: 10px 0; }
+#draw-area { background: #263238; width: 300px; height: 200px; border: 1px solid #4fc3f7; border-radius: 8px; padding: 10px; }
+#visit-counter { color: #66bb6a; font-size: 24px; margin: 15px 0; }
+</style>
+</head>
+<body>
+  <h1>Canvas 2D + localStorage Demo</h1>
+  <p class="info">This demo uses the Canvas 2D API mock and localStorage.</p>
+
+  <div id="visit-counter">Loading...</div>
+
+  <div id="draw-area"></div>
+
+  <div style="margin-top:15px;">
+    <button id="btn-save" style="background:#2e7d32;color:white;padding:8px 16px;border:none;border-radius:4px;cursor:pointer;"
+            onclick="localStorage.setItem('note','Hello from MiniBrowser!');document.getElementById('saved-note').textContent='Saved: '+localStorage.getItem('note');">
+      Save to localStorage
+    </button>
+    <div id="saved-note" style="color:#90a4ae;margin-top:8px;"></div>
+  </div>
+
+  <script>
+    // localStorage visit counter
+    var visits = parseInt(localStorage.getItem('visits') || '0') + 1;
+    localStorage.setItem('visits', '' + visits);
+    document.getElementById('visit-counter').textContent = 'Visit #' + visits;
+
+    // Canvas 2D drawing
+    var area = document.getElementById('draw-area');
+    var ctx = area.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = '#c62828';
+      ctx.fillRect(10, 10, 60, 40);
+      ctx.fillStyle = '#2e7d32';
+      ctx.fillRect(80, 10, 60, 40);
+      ctx.fillStyle = '#1565c0';
+      ctx.fillRect(150, 10, 60, 40);
+      ctx.fillStyle = '#e0e0e0';
+      ctx.fillText('Canvas 2D API', 10, 80);
+    } else {
+      area.textContent = 'Canvas 2D not available';
+    }
+
+    // Show existing localStorage data
+    var note = localStorage.getItem('note');
+    if (note) {
+      document.getElementById('saved-note').textContent = 'Stored: ' + note;
+    }
+  </script>
+</body>
+</html>

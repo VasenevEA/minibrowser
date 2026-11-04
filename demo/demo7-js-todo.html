@@ -1,0 +1,62 @@
+<html><body style="background:#1a1a2e;color:white;padding:20px;font-size:16px;">
+  <h1 style="color:#4fc3f7;">JS Demo: Todo List</h1>
+
+  <div style="display:flex;gap:10px;margin:20px 0;">
+    <input id="input" type="text" placeholder="New task..." style="background:#263238;color:white;border:1px solid #4fc3f7;padding:10px;font-size:16px;width:300px;" />
+    <button id="add" style="background:#2e7d32;color:white;padding:10px 20px;font-size:16px;border:none;cursor:pointer;">Add</button>
+  </div>
+
+  <div id="list" style="background:#263238;padding:15px;min-height:100px;"></div>
+
+  <div style="margin-top:15px;display:flex;gap:10px;">
+    <div id="stats" style="color:#90a4ae;"></div>
+    <button id="clear-done" style="background:#c62828;color:white;padding:6px 12px;font-size:12px;border:none;cursor:pointer;">Clear Done</button>
+  </div>
+
+  <script>
+    var todos = [
+      { text: 'Learn Rust', done: true },
+      { text: 'Build browser engine', done: false },
+      { text: 'Add JavaScript support', done: true },
+      { text: 'Test with real pages', done: false }
+    ];
+
+    function render() {
+      var html = '';
+      for (var i = 0; i < todos.length; i++) {
+        var t = todos[i];
+        var bg = t.done ? '#1b5e20' : '#37474f';
+        var decoration = t.done ? 'line-through' : 'none';
+        html += '<div style="padding:8px;margin:4px 0;background:' + bg + ';cursor:pointer;" onclick="toggle(' + i + ')">';
+        html += '<span style="text-decoration:' + decoration + ';">' + (t.done ? '✓ ' : '○ ') + t.text + '</span>';
+        html += '</div>';
+      }
+      document.getElementById('list').innerHTML = html;
+
+      var done = todos.filter(function(t) { return t.done; }).length;
+      document.getElementById('stats').textContent = done + '/' + todos.length + ' completed';
+    }
+
+    function toggle(i) {
+      todos[i].done = !todos[i].done;
+      render();
+    }
+
+    document.getElementById('add').onclick = function() {
+      var input = document.getElementById('input');
+      var text = input.value;
+      if (text) {
+        todos.push({ text: text, done: false });
+        input.value = '';
+        render();
+      }
+    };
+
+    document.getElementById('clear-done').onclick = function() {
+      todos = todos.filter(function(t) { return !t.done; });
+      render();
+    };
+
+    render();
+  </script>
+</body></html>

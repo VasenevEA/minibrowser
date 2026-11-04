@@ -1,0 +1,65 @@
+<html>
+<head>
+<style>
+body {
+  background-color: #1a1a2e;
+  color: #e0e0e0;
+  padding: 20px;
+  font-size: 16px;
+}
+h1 {
+  color: #4fc3f7;
+}
+.card {
+  background-color: #263238;
+  padding: 15px;
+  margin: 10px 0;
+}
+.highlight {
+  color: #66bb6a;
+  font-size: 20px;
+}
+.flex-row {
+  display: flex;
+  gap: 10px;
+}
+.box {
+  width: 80px;
+  height: 80px;
+  padding: 10px;
+  color: white;
+}
+.red { background-color: #c62828; }
+.green { background-color: #2e7d32; }
+.blue { background-color: #1565c0; }
+.purple { background-color: #6a1b9a; }
+#status {
+  color: #ff7043;
+  font-size: 24px;
+}
+</style>
+</head>
+<body>
+  <h1>CSS Selectors Demo</h1>
+  <p>This page uses &lt;style&gt; blocks instead of inline styles.</p>
+
+  <div class="card">
+    <span class="highlight">Styled via .highlight class</span>
+  </div>
+
+  <div class="card">
+    <div id="status">Styled via #status ID</div>
+  </div>
+
+  <div class="flex-row">
+    <div class="box red">Red</div>
+    <div class="box green">Green</div>
+    <div class="box blue">Blue</div>
+    <div class="box purple">Purple</div>
+  </div>
+
+  <div class="card">
+    <p>Classes, IDs, and tag selectors all work!</p>
+  </div>
+</body>
+</html>
