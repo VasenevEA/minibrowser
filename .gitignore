@@ -2,3 +2,4 @@ target/
 pkg/
 *.png
 !tests/pixel_results/**
+tests/ref/*.png

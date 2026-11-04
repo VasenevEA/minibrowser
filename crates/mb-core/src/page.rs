@@ -527,6 +527,7 @@ fn convert_styled(sn: &css::StyledNode, cx: &mut Cx) -> layout::StyledNode {
 
     let get_dim = |prop: &str| -> layout::Dimension {
         match sn.get(prop) {
+            Some(CSSValue::Length(n, css::Unit::Percent)) => layout::Dimension::Percent(*n),
             Some(CSSValue::Length(n, _)) => layout::Dimension::Px(*n),
             Some(CSSValue::Number(n)) => layout::Dimension::Px(*n),
             Some(CSSValue::Auto) => layout::Dimension::Auto,
@@ -738,6 +739,7 @@ fn convert_styled(sn: &css::StyledNode, cx: &mut Cx) -> layout::StyledNode {
         offset_left: get_length("left", 0.0),
         grid_template_columns: parse_grid_template_columns(sn),
         grid_gap: get_length("grid-gap", get_length("gap", 0.0)),
+        border_box: is_border_box,
         content,
         children: sn.children.iter().map(|c| convert_styled(c, cx)).collect(),
     }

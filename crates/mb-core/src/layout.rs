@@ -109,6 +109,8 @@ pub struct LayoutBox {
     pub offset_left: f32,
     pub grid_template_columns: Vec<GridTrack>,
     pub grid_gap: f32,
+    /// `box-sizing: border-box`: percentage sizes include padding and border.
+    pub border_box: bool,
 }
 
 impl LayoutBox {
@@ -181,6 +183,8 @@ pub struct StyledNode {
     pub offset_left: f32,
     pub grid_template_columns: Vec<GridTrack>,
     pub grid_gap: f32,
+    /// `box-sizing: border-box`: percentage sizes include padding and border.
+    pub border_box: bool,
     pub content: NodeContent,
     pub children: Vec<StyledNode>,
 }
@@ -240,6 +244,19 @@ pub enum GridTrack {
 pub enum Dimension {
     Auto,
     Px(f32),
+    /// Percent of the containing block; layout turns it into `Px` before using it.
+    Percent(f32),
+}
+
+impl Dimension {
+    /// `Percent` against `base` (`Auto` when the base is indefinite); others unchanged.
+    fn resolve(self, base: Option<f32>) -> Dimension {
+        match (self, base) {
+            (Dimension::Percent(p), Some(b)) => Dimension::Px(p / 100.0 * b),
+            (Dimension::Percent(_), None) => Dimension::Auto,
+            (d, _) => d,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -284,6 +301,7 @@ impl StyledNode {
             offset_left: 0.0,
             grid_template_columns: Vec::new(),
             grid_gap: 0.0,
+            border_box: false,
             content: NodeContent::Text(s.to_string()),
             children: Vec::new(),
         }
@@ -318,6 +336,7 @@ impl StyledNode {
             offset_left: 0.0,
             grid_template_columns: Vec::new(),
             grid_gap: 0.0,
+            border_box: false,
             content: NodeContent::Element,
             children,
         }
@@ -400,6 +419,7 @@ fn build_layout_box(node: &StyledNode) -> LayoutBox {
             offset_left: 0.0,
             grid_template_columns: Vec::new(),
             grid_gap: 0.0,
+            border_box: false,
         };
     }
 
@@ -459,6 +479,7 @@ fn build_layout_box(node: &StyledNode) -> LayoutBox {
         offset_left: node.offset_left,
         grid_template_columns: node.grid_template_columns.clone(),
         grid_gap: node.grid_gap,
+        border_box: node.border_box,
     }
 }
 
@@ -470,8 +491,11 @@ impl LayoutBox {
         cx: f32,
         cy: f32,
         containing_width: f32,
-        _containing_height: f32,
+        containing_height: f32,
     ) {
+        // The root's containing height is a "no limit" sentinel, not a size.
+        let definite_height = (containing_height < 50_000.0).then_some(containing_height);
+        self.resolve_percentages(containing_width, definite_height);
         // Fixed elements are positioned relative to viewport (0,0)
         let (eff_cx, eff_cy) = if self.position == Position::Fixed {
             (0.0, 0.0)
@@ -609,7 +633,7 @@ impl LayoutBox {
 
         self.height = match self.explicit_height {
             Dimension::Px(h) => h,
-            Dimension::Auto => children_height,
+            Dimension::Auto | Dimension::Percent(_) => children_height,
         };
 
         // Clamp to min-height
@@ -667,13 +691,13 @@ impl LayoutBox {
                     // child_margin_h below will add margin+border+padding
                     match child.explicit_width {
                         Dimension::Px(w) => w,
-                        Dimension::Auto => child.measure_inline_content_width(),
+                        Dimension::Auto | Dimension::Percent(_) => child.measure_inline_content_width(),
                     }
                 }
                 BoxContent::Image { intrinsic_w, .. } => {
                     match child.explicit_width {
                         Dimension::Px(w) => w,
-                        Dimension::Auto => if *intrinsic_w > 0 { *intrinsic_w as f32 } else { 200.0 },
+                        Dimension::Auto | Dimension::Percent(_) => if *intrinsic_w > 0 { *intrinsic_w as f32 } else { 200.0 },
                     }
                 }
                 _ => child.resolve_width(available_width),
@@ -749,6 +773,11 @@ impl LayoutBox {
         if self.children.is_empty() {
             self.height = 0.0;
             return;
+        }
+
+        let (w, h) = (self.width, self.definite_height());
+        for child in &mut self.children {
+            child.resolve_percentages(w, h);
         }
 
         let content_x = self.content_x();
@@ -1029,6 +1058,11 @@ impl LayoutBox {
             return;
         }
 
+        let (w, h) = (self.width, self.definite_height());
+        for child in &mut self.children {
+            child.resolve_percentages(w, h);
+        }
+
         let content_x = self.content_x();
         let content_y = self.content_y();
         let available_width = self.width;
@@ -1096,7 +1130,7 @@ impl LayoutBox {
         // Height
         self.height = match self.explicit_height {
             Dimension::Px(h) => h,
-            Dimension::Auto => (row_y - content_y).max(0.0),
+            Dimension::Auto | Dimension::Percent(_) => (row_y - content_y).max(0.0),
         };
 
         // Clamp to min-height
@@ -1119,7 +1153,7 @@ impl LayoutBox {
             Dimension::Px(w) => {
                 self.width = w;
             }
-            Dimension::Auto => {
+            Dimension::Auto | Dimension::Percent(_) => {
                 // Calculate content-based width (just children content, no self padding)
                 // self.width is the content area; padding/border are in margin_box_width()
                 let content_width = self.measure_inline_content_width();
@@ -1133,7 +1167,7 @@ impl LayoutBox {
         if self.children.is_empty() {
             self.height = match self.explicit_height {
                 Dimension::Px(h) => h,
-                Dimension::Auto => self.computed_line_height(),
+                Dimension::Auto | Dimension::Percent(_) => self.computed_line_height(),
             };
             // Clamp to min-height
             if let Dimension::Px(min_h) = self.min_height {
@@ -1156,7 +1190,7 @@ impl LayoutBox {
 
         self.height = match self.explicit_height {
             Dimension::Px(h) => h,
-            Dimension::Auto => {
+            Dimension::Auto | Dimension::Percent(_) => {
                 if max_child_height > 0.0 {
                     max_child_height
                 } else {
@@ -1192,7 +1226,7 @@ impl LayoutBox {
                         Dimension::Px(w) => w + child.margin.left + child.margin.right
                             + child.padding.left + child.padding.right
                             + child.border.left + child.border.right,
-                        Dimension::Auto => child.measure_inline_content_width()
+                        Dimension::Auto | Dimension::Percent(_) => child.measure_inline_content_width()
                             + child.padding.left + child.padding.right
                             + child.border.left + child.border.right
                             + child.margin.left + child.margin.right,
@@ -1279,11 +1313,11 @@ impl LayoutBox {
 
         self.width = match self.explicit_width {
             Dimension::Px(w) => w,
-            Dimension::Auto => max_line_width.min(max_width),
+            Dimension::Auto | Dimension::Percent(_) => max_line_width.min(max_width),
         };
         self.height = match self.explicit_height {
             Dimension::Px(h) => h,
-            Dimension::Auto => line_count as f32 * line_height,
+            Dimension::Auto | Dimension::Percent(_) => line_count as f32 * line_height,
         };
     }
 
@@ -1305,12 +1339,12 @@ impl LayoutBox {
 
         self.width = match self.explicit_width {
             Dimension::Px(w) => w,
-            Dimension::Auto => iw,
+            Dimension::Auto | Dimension::Percent(_) => iw,
         };
 
         self.height = match self.explicit_height {
             Dimension::Px(h) => h,
-            Dimension::Auto => {
+            Dimension::Auto | Dimension::Percent(_) => {
                 // If width was explicitly set but height wasn't, scale proportionally
                 if let Dimension::Px(w) = self.explicit_width {
                     if iw > 0.0 { w * ih / iw } else { ih }
@@ -1329,7 +1363,7 @@ impl LayoutBox {
     fn resolve_width(&self, containing_width: f32) -> f32 {
         match self.explicit_width {
             Dimension::Px(w) => w,
-            Dimension::Auto => {
+            Dimension::Auto | Dimension::Percent(_) => {
                 let used_horizontal = self.margin.left
                     + self.border.left
                     + self.padding.left
@@ -1338,6 +1372,36 @@ impl LayoutBox {
                     + self.margin.right;
                 (containing_width - used_horizontal).max(0.0)
             }
+        }
+    }
+
+    /// Turns percentage sizes into pixels against the containing block. Flex and
+    /// grid containers call it for their items before measuring them.
+    fn resolve_percentages(&mut self, containing_width: f32, containing_height: Option<f32>) {
+        // Explicit sizes are content-box here; a border-box percentage loses padding and border.
+        let (dx, dy) = if self.border_box {
+            (self.padding.left + self.padding.right + self.border.left + self.border.right,
+             self.padding.top + self.padding.bottom + self.border.top + self.border.bottom)
+        } else {
+            (0.0, 0.0)
+        };
+        let content = |d: Dimension, base: Option<f32>, edges: f32| match d {
+            Dimension::Percent(_) => match d.resolve(base) {
+                Dimension::Px(v) => Dimension::Px((v - edges).max(0.0)),
+                other => other,
+            },
+            d => d,
+        };
+        self.explicit_width = content(self.explicit_width, Some(containing_width), dx);
+        self.explicit_height = content(self.explicit_height, containing_height, dy);
+        self.min_height = content(self.min_height, containing_height, dy);
+    }
+
+    /// The height percentages of children resolve against: ours, if it is fixed.
+    fn definite_height(&self) -> Option<f32> {
+        match self.explicit_height {
+            Dimension::Px(h) => Some(h),
+            _ => None,
         }
     }
 
@@ -1357,7 +1421,7 @@ impl LayoutBox {
             BoxContent::Image { intrinsic_w, .. } => {
                 let w = match node.explicit_width {
                     Dimension::Px(w) => w,
-                    Dimension::Auto => if *intrinsic_w > 0 { *intrinsic_w as f32 } else { 200.0 },
+                    Dimension::Auto | Dimension::Percent(_) => if *intrinsic_w > 0 { *intrinsic_w as f32 } else { 200.0 },
                 };
                 w + node.padding.left + node.padding.right
                     + node.border.left + node.border.right
