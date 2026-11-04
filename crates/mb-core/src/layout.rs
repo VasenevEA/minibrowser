@@ -331,11 +331,7 @@ impl StyledNode {
 /// Approximate width of a single character at the given font size.
 /// Use fontdue for accurate text measurement (matching paint module).
 fn measure_text_width(text: &str, font_size: f32) -> f32 {
-    use crate::font::FontduFont;
-    thread_local! {
-        static FONT: FontduFont = FontduFont::new();
-    }
-    FONT.with(|f| f.measure_text(text, font_size).0)
+    crate::font::FontduFont::shared().measure_text(text, font_size).0
 }
 
 /// Single character width via fontdue.

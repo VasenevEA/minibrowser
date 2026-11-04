@@ -5,7 +5,8 @@
 //! script execution, DOM command generation, and state persistence.
 
 use wasm_bindgen_test::*;
-use minibrowser::js_engine;
+use minibrowser::js_engine::{self, JsHost};
+use minibrowser::BrowserJs;
 use minibrowser::html_parser;
 
 wasm_bindgen_test_configure!(run_in_browser);
@@ -22,8 +23,9 @@ fn execute_scripts_sets_text() {
     </body></html>"#;
 
     let mut doc = html_parser::parse_html(html);
-    js_engine::reset_js_state();
-    let count = js_engine::execute_scripts(&mut doc);
+    let mut js = BrowserJs;
+    js.reset();
+    let count = js_engine::execute_scripts(&mut doc, &mut js, 0.0);
 
     assert_eq!(count, 1);
     let msg = doc.root.get_element_by_id("msg").unwrap();
@@ -38,8 +40,9 @@ fn execute_scripts_sets_style() {
     </body></html>"#;
 
     let mut doc = html_parser::parse_html(html);
-    js_engine::reset_js_state();
-    js_engine::execute_scripts(&mut doc);
+    let mut js = BrowserJs;
+    js.reset();
+    js_engine::execute_scripts(&mut doc, &mut js, 0.0);
 
     let box_el = doc.root.get_element_by_id("box").unwrap();
     let style = box_el.element_data().unwrap().attributes.get("style").unwrap();
@@ -58,8 +61,9 @@ fn execute_scripts_registers_onclick() {
     </body></html>"#;
 
     let mut doc = html_parser::parse_html(html);
-    js_engine::reset_js_state();
-    js_engine::execute_scripts(&mut doc);
+    let mut js = BrowserJs;
+    js.reset();
+    js_engine::execute_scripts(&mut doc, &mut js, 0.0);
 
     let btn = doc.root.get_element_by_id("btn").unwrap();
     let onclick = btn.element_data().unwrap().attributes.get("onclick");
@@ -79,8 +83,9 @@ fn execute_scripts_addeventlistener_click() {
     </body></html>"#;
 
     let mut doc = html_parser::parse_html(html);
-    js_engine::reset_js_state();
-    js_engine::execute_scripts(&mut doc);
+    let mut js = BrowserJs;
+    js.reset();
+    js_engine::execute_scripts(&mut doc, &mut js, 0.0);
 
     let target = doc.root.get_element_by_id("target").unwrap();
     let onclick = target.element_data().unwrap().attributes.get("onclick");
@@ -100,24 +105,25 @@ fn var_persists_across_execute_onclick() {
     </body></html>"#;
 
     let mut doc = html_parser::parse_html(html);
-    js_engine::reset_js_state();
-    js_engine::execute_scripts(&mut doc);
+    let mut js = BrowserJs;
+    js.reset();
+    js_engine::execute_scripts(&mut doc, &mut js, 0.0);
 
     // Simulate onclick: counter++ and update text
-    js_engine::execute_onclick(&mut doc,
-        "counter++; document.getElementById('count').textContent = '' + counter;");
+    js_engine::execute_onclick(&mut doc, &mut js,
+        "counter++; document.getElementById('count').textContent = '' + counter;", 0.0);
 
     assert_eq!(doc.root.get_element_by_id("count").unwrap().inner_text(), "1");
 
     // Click again
-    js_engine::execute_onclick(&mut doc,
-        "counter++; document.getElementById('count').textContent = '' + counter;");
+    js_engine::execute_onclick(&mut doc, &mut js,
+        "counter++; document.getElementById('count').textContent = '' + counter;", 0.0);
 
     assert_eq!(doc.root.get_element_by_id("count").unwrap().inner_text(), "2");
 
     // Click again
-    js_engine::execute_onclick(&mut doc,
-        "counter++; document.getElementById('count').textContent = '' + counter;");
+    js_engine::execute_onclick(&mut doc, &mut js,
+        "counter++; document.getElementById('count').textContent = '' + counter;", 0.0);
 
     assert_eq!(doc.root.get_element_by_id("count").unwrap().inner_text(), "3");
 }
@@ -133,14 +139,15 @@ fn function_persists_across_calls() {
     </body></html>"#;
 
     let mut doc = html_parser::parse_html(html);
-    js_engine::reset_js_state();
-    js_engine::execute_scripts(&mut doc);
+    let mut js = BrowserJs;
+    js.reset();
+    js_engine::execute_scripts(&mut doc, &mut js, 0.0);
 
     // Call inc() via onclick
-    js_engine::execute_onclick(&mut doc, "inc()");
+    js_engine::execute_onclick(&mut doc, &mut js, "inc()", 0.0);
     assert_eq!(doc.root.get_element_by_id("out").unwrap().inner_text(), "11");
 
-    js_engine::execute_onclick(&mut doc, "inc()");
+    js_engine::execute_onclick(&mut doc, &mut js, "inc()", 0.0);
     assert_eq!(doc.root.get_element_by_id("out").unwrap().inner_text(), "12");
 }
 
@@ -161,8 +168,9 @@ fn onclick_handler_callable() {
     </body></html>"#;
 
     let mut doc = html_parser::parse_html(html);
-    js_engine::reset_js_state();
-    js_engine::execute_scripts(&mut doc);
+    let mut js = BrowserJs;
+    js.reset();
+    js_engine::execute_scripts(&mut doc, &mut js, 0.0);
 
     // Get the onclick attribute (should be __mb_click_btn())
     let onclick = doc.root.get_element_by_id("btn").unwrap()
@@ -170,7 +178,7 @@ fn onclick_handler_callable() {
         .attributes.get("onclick").unwrap().clone();
 
     // Execute it
-    js_engine::execute_onclick(&mut doc, &onclick);
+    js_engine::execute_onclick(&mut doc, &mut js, &onclick, 0.0);
 
     assert_eq!(doc.root.get_element_by_id("result").unwrap().inner_text(), "clicked!");
 }
@@ -199,8 +207,9 @@ fn full_counter_demo_flow() {
     </body></html>"#;
 
     let mut doc = html_parser::parse_html(html);
-    js_engine::reset_js_state();
-    js_engine::execute_scripts(&mut doc);
+    let mut js = BrowserJs;
+    js.reset();
+    js_engine::execute_scripts(&mut doc, &mut js, 0.0);
 
     // Initial state
     assert_eq!(doc.root.get_element_by_id("count").unwrap().inner_text(), "0");
@@ -214,25 +223,25 @@ fn full_counter_demo_flow() {
         .element_data().unwrap().attributes.get("onclick").unwrap().clone();
 
     // Click + three times
-    js_engine::execute_onclick(&mut doc, &inc_handler);
+    js_engine::execute_onclick(&mut doc, &mut js, &inc_handler, 0.0);
     assert_eq!(doc.root.get_element_by_id("count").unwrap().inner_text(), "1");
 
-    js_engine::execute_onclick(&mut doc, &inc_handler);
+    js_engine::execute_onclick(&mut doc, &mut js, &inc_handler, 0.0);
     assert_eq!(doc.root.get_element_by_id("count").unwrap().inner_text(), "2");
 
-    js_engine::execute_onclick(&mut doc, &inc_handler);
+    js_engine::execute_onclick(&mut doc, &mut js, &inc_handler, 0.0);
     assert_eq!(doc.root.get_element_by_id("count").unwrap().inner_text(), "3");
 
     // Click - once
-    js_engine::execute_onclick(&mut doc, &dec_handler);
+    js_engine::execute_onclick(&mut doc, &mut js, &dec_handler, 0.0);
     assert_eq!(doc.root.get_element_by_id("count").unwrap().inner_text(), "2");
 
     // Reset
-    js_engine::execute_onclick(&mut doc, &reset_handler);
+    js_engine::execute_onclick(&mut doc, &mut js, &reset_handler, 0.0);
     assert_eq!(doc.root.get_element_by_id("count").unwrap().inner_text(), "0");
 
     // Click - to go negative
-    js_engine::execute_onclick(&mut doc, &dec_handler);
+    js_engine::execute_onclick(&mut doc, &mut js, &dec_handler, 0.0);
     assert_eq!(doc.root.get_element_by_id("count").unwrap().inner_text(), "-1");
 }
 
@@ -250,8 +259,9 @@ fn innerhtml_set_via_script() {
     </body></html>"#;
 
     let mut doc = html_parser::parse_html(html);
-    js_engine::reset_js_state();
-    js_engine::execute_scripts(&mut doc);
+    let mut js = BrowserJs;
+    js.reset();
+    js_engine::execute_scripts(&mut doc, &mut js, 0.0);
 
     let text = doc.root.get_element_by_id("container").unwrap().inner_text();
     assert!(text.contains("hello"));
@@ -273,8 +283,9 @@ fn setinterval_executes_immediately() {
     </body></html>"#;
 
     let mut doc = html_parser::parse_html(html);
-    js_engine::reset_js_state();
-    js_engine::execute_scripts(&mut doc);
+    let mut js = BrowserJs;
+    js.reset();
+    js_engine::execute_scripts(&mut doc, &mut js, 0.0);
 
     // setInterval callback should have run immediately
     assert_eq!(doc.root.get_element_by_id("clock").unwrap().inner_text(), "tick");
@@ -294,17 +305,18 @@ fn tick_timers_runs_intervals() {
     </body></html>"#;
 
     let mut doc = html_parser::parse_html(html);
-    js_engine::reset_js_state();
-    js_engine::execute_scripts(&mut doc);
+    let mut js = BrowserJs;
+    js.reset();
+    js_engine::execute_scripts(&mut doc, &mut js, 0.0);
 
     // After initial execution, n=1
     assert_eq!(doc.root.get_element_by_id("val").unwrap().inner_text(), "1");
 
     // Tick timers (simulates re-render)
-    js_engine::tick_timers(&mut doc);
+    js_engine::tick_timers(&mut doc, &mut js, 0.0);
     assert_eq!(doc.root.get_element_by_id("val").unwrap().inner_text(), "2");
 
-    js_engine::tick_timers(&mut doc);
+    js_engine::tick_timers(&mut doc, &mut js, 0.0);
     assert_eq!(doc.root.get_element_by_id("val").unwrap().inner_text(), "3");
 }
 
@@ -320,12 +332,13 @@ fn scripts_removed_after_execution() {
     </body></html>"#;
 
     let mut doc = html_parser::parse_html(html);
-    js_engine::reset_js_state();
+    let mut js = BrowserJs;
+    js.reset();
 
     // Before: scripts exist
     assert!(!js_engine::extract_scripts(&doc).is_empty());
 
-    js_engine::execute_scripts(&mut doc);
+    js_engine::execute_scripts(&mut doc, &mut js, 0.0);
 
     // After: scripts removed
     assert!(js_engine::extract_scripts(&doc).is_empty());
@@ -345,8 +358,9 @@ fn js_error_does_not_crash() {
     </body></html>"#;
 
     let mut doc = html_parser::parse_html(html);
-    js_engine::reset_js_state();
-    js_engine::execute_scripts(&mut doc);
+    let mut js = BrowserJs;
+    js.reset();
+    js_engine::execute_scripts(&mut doc, &mut js, 0.0);
 
     // Should not crash, DOM unchanged
     assert_eq!(doc.root.get_element_by_id("ok").unwrap().inner_text(), "original");
@@ -360,11 +374,12 @@ fn js_error_in_onclick_does_not_crash() {
     </body></html>"#;
 
     let mut doc = html_parser::parse_html(html);
-    js_engine::reset_js_state();
-    js_engine::execute_scripts(&mut doc);
+    let mut js = BrowserJs;
+    js.reset();
+    js_engine::execute_scripts(&mut doc, &mut js, 0.0);
 
     // Execute broken onclick
-    js_engine::execute_onclick(&mut doc, "undefined_function()");
+    js_engine::execute_onclick(&mut doc, &mut js, "undefined_function()", 0.0);
 
     // Should not crash
     assert_eq!(doc.root.get_element_by_id("out").unwrap().inner_text(), "safe");

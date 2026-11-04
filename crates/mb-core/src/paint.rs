@@ -20,9 +20,9 @@ pub fn paint(layout_root: &LayoutBox, width: u32, height: u32) -> Vec<u8> {
     let bg = find_root_background(layout_root);
     pixmap.fill(bg);
 
-    let font = FontduFont::new();
+    let font = FontduFont::shared();
 
-    paint_box(&mut pixmap, layout_root, &font);
+    paint_box(&mut pixmap, layout_root, font);
 
     pixmap.data().to_vec()
 }

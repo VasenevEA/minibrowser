@@ -2,7 +2,8 @@
 //! Tests CSS Grid, position, border-radius, text-decoration, images, Canvas 2D, localStorage.
 
 use wasm_bindgen_test::*;
-use minibrowser::js_engine;
+use minibrowser::js_engine::{self, JsHost};
+use minibrowser::BrowserJs;
 use minibrowser::html_parser;
 use minibrowser::css;
 
@@ -91,8 +92,9 @@ fn localstorage_set_and_get() {
     </body></html>"#;
 
     let mut doc = html_parser::parse_html(html);
-    js_engine::reset_js_state();
-    js_engine::execute_scripts(&mut doc);
+    let mut js = BrowserJs;
+    js.reset();
+    js_engine::execute_scripts(&mut doc, &mut js, 0.0);
 
     assert_eq!(doc.root.get_element_by_id("out").unwrap().inner_text(), "hello");
 }
@@ -109,17 +111,18 @@ fn localstorage_persists_across_calls() {
     </body></html>"#;
 
     let mut doc = html_parser::parse_html(html);
-    js_engine::reset_js_state();
+    let mut js = BrowserJs;
+    js.reset();
     // Clear any previous state
     let _ = js_sys::eval("window.__mb_storage = {}");
-    js_engine::execute_scripts(&mut doc);
+    js_engine::execute_scripts(&mut doc, &mut js, 0.0);
 
     let val1 = doc.root.get_element_by_id("count").unwrap().inner_text();
     assert_eq!(val1, "1");
 
     // Second execution (simulating page reload with persistent storage)
     let mut doc2 = html_parser::parse_html(html);
-    js_engine::execute_scripts(&mut doc2);
+    js_engine::execute_scripts(&mut doc2, &mut js, 0.0);
     let val2 = doc2.root.get_element_by_id("count").unwrap().inner_text();
     assert_eq!(val2, "2");
 }
@@ -142,8 +145,9 @@ fn canvas_getcontext_returns_object() {
     </body></html>"#;
 
     let mut doc = html_parser::parse_html(html);
-    js_engine::reset_js_state();
-    js_engine::execute_scripts(&mut doc);
+    let mut js = BrowserJs;
+    js.reset();
+    js_engine::execute_scripts(&mut doc, &mut js, 0.0);
 
     assert_eq!(doc.root.get_element_by_id("result").unwrap().inner_text(), "yes");
 }
@@ -160,8 +164,9 @@ fn canvas_fillrect_produces_command() {
     </body></html>"#;
 
     let mut doc = html_parser::parse_html(html);
-    js_engine::reset_js_state();
-    js_engine::execute_scripts(&mut doc);
+    let mut js = BrowserJs;
+    js.reset();
+    js_engine::execute_scripts(&mut doc, &mut js, 0.0);
 
     // Canvas commands are stored as data-canvas-cmds attribute
     let canvas_el = doc.root.get_element_by_id("canvas").unwrap();

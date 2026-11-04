@@ -1,0 +1,171 @@
+//! [`JsHost`] on QuickJS: real JavaScript for native builds (the panel, headless).
+//!
+//! Each page gets a fresh runtime with the DOM glue from `dom.js`. Page code runs
+//! at global scope, so `var`s and functions persist between scripts, handlers and
+//! timer callbacks, as in a browser.
+
+use mb_core::JsHost;
+use rquickjs::{CatchResultExt, Context, Runtime};
+
+const DOM_JS: &str = include_str!("dom.js");
+
+pub struct QuickJs {
+    rt: Runtime,
+    ctx: Context,
+}
+
+impl QuickJs {
+    pub fn new() -> Self {
+        let (rt, ctx) = fresh();
+        QuickJs { rt, ctx }
+    }
+
+    /// Evaluates `code` and returns the commands it queued. If it threw, the commands
+    /// queued before the throw are kept, as a browser keeps their effects, and the
+    /// exception is logged.
+    fn eval_take(&mut self, code: &str, now: f64) -> Result<String, String> {
+        self.ctx.with(|ctx| {
+            let _ = ctx.globals().set("__mb_now", now);
+            if let Err(e) = ctx.eval::<(), _>(code).catch(&ctx) {
+                log::warn!("JS error: {}", e);
+            }
+            ctx.eval::<String, _>("__mb_take()").catch(&ctx).map_err(|e| e.to_string())
+        })
+    }
+}
+
+impl Default for QuickJs {
+    fn default() -> Self { Self::new() }
+}
+
+fn fresh() -> (Runtime, Context) {
+    let rt = Runtime::new().expect("QuickJS runtime");
+    // A page must not take the panel down with it.
+    rt.set_memory_limit(32 << 20);
+    rt.set_max_stack_size(512 << 10);
+    let ctx = Context::full(&rt).expect("QuickJS context");
+    ctx.with(|ctx| {
+        ctx.eval::<(), _>(DOM_JS).catch(&ctx).map_err(|e| e.to_string()).expect("dom.js");
+    });
+    (rt, ctx)
+}
+
+impl JsHost for QuickJs {
+    fn reset(&mut self) {
+        let (rt, ctx) = fresh();
+        // Drop the old context before its runtime.
+        self.ctx = ctx;
+        self.rt = rt;
+    }
+
+    fn run(&mut self, code: &str, now_ms: f64) -> Result<String, String> {
+        self.eval_take(code, now_ms)
+    }
+
+    fn tick(&mut self, now_ms: f64) -> Result<String, String> {
+        self.eval_take(&format!("__mb_tick({})", now_ms), now_ms)
+    }
+
+    fn next_timer(&self, now_ms: f64) -> Option<f64> {
+        self.ctx.with(|ctx| {
+            let d: f64 = ctx.eval(format!("__mb_next({})", now_ms)).ok()?;
+            (d >= 0.0).then_some(d)
+        })
+    }
+
+    fn set_input_value(&mut self, id: &str, value: &str) {
+        let id = js_string(id);
+        let value = js_string(value);
+        self.ctx.with(|ctx| {
+            let _ = ctx.eval::<(), _>(format!("__mb_el({id})._attrs.value = {value}; __mb_el({id})._text = {value};"));
+        });
+    }
+}
+
+/// `s` as a JavaScript string literal.
+fn js_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mb_core::Page;
+
+    const COUNTER: &str = r#"<html><body>
+      <div id="n">0</div><button id="inc" style="padding:10px">+</button>
+      <script>
+        var count = 0;
+        document.getElementById('inc').onclick = function() {
+          count++; document.getElementById('n').textContent = 'n=' + count;
+        };
+      </script></body></html>"#;
+
+    impl QuickJs {
+        fn run_at0(&mut self, code: &str) -> Result<String, String> { self.run(code, 0.0) }
+    }
+
+    fn text_of(page: &Page, id: &str) -> String {
+        fn find(n: &mb_core::dom::Node, id: &str) -> Option<String> {
+            if let mb_core::dom::NodeType::Element(d) = &n.node_type {
+                if d.id() == Some(id) {
+                    return Some(n.children.iter().filter_map(|c| match &c.node_type {
+                        mb_core::dom::NodeType::Text(t) => Some(t.clone()),
+                        _ => None,
+                    }).collect());
+                }
+            }
+            n.children.iter().find_map(|c| find(c, id))
+        }
+        find(&page.document().unwrap().root, id).unwrap_or_default()
+    }
+
+    #[test]
+    fn click_runs_handler_and_state_persists() {
+        let mut page = Page::new(Box::new(QuickJs::new()), 320, 200);
+        page.load(COUNTER);
+        let r = page.hit_regions().iter().find(|r| r.id == "inc").unwrap().clone();
+        assert!(page.click(r.x + 2.0, r.y + 2.0));
+        assert!(page.click(r.x + 2.0, r.y + 2.0));
+        assert_eq!(text_of(&page, "n"), "n=2");
+    }
+
+    #[test]
+    fn interval_fires_on_tick_only_when_due() {
+        let mut js = QuickJs::new();
+        js.run_at0("var k = 0; setInterval(function(){ k++; document.getElementById('a').textContent = k; }, 100);").unwrap();
+        assert_eq!(js.tick(50.0).unwrap(), "[]");
+        assert!(js.tick(120.0).unwrap().contains("\"text\":\"1\""));
+        assert!(js.next_timer(120.0).unwrap() <= 100.0);
+    }
+
+    #[test]
+    fn exception_keeps_earlier_commands() {
+        let mut js = QuickJs::new();
+        let out = js.run_at0("document.getElementById('a').textContent = 'x'; nope();").unwrap();
+        assert!(out.contains("SetTextById"));
+    }
+
+    #[test]
+    fn strings_survive_quoting() {
+        let mut js = QuickJs::new();
+        js.set_input_value("in", "a\"b\\c\n'");
+        let out = js.run_at0("document.getElementById('o').textContent = document.getElementById('in').value;").unwrap();
+        assert!(out.contains(r#"a\"b\\c\n'"#), "{}", out);
+    }
+}

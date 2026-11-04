@@ -1,9 +1,6 @@
 /* @ts-self-types="./minibrowser.d.ts" */
 
 /**
- * Handle a click at (x, y) on the canvas. If a hit region with an onclick
- * handler is found, execute the onclick, re-render, and return stats.
- * The DOM from the last render is reused and mutated (state persists).
  * @param {string} canvas_id
  * @param {number} x
  * @param {number} y
@@ -17,7 +14,6 @@ export function click_at(canvas_id, x, y) {
 }
 
 /**
- * Get the ID of the currently focused input (if any). Called from JS for cursor display.
  * @returns {any}
  */
 export function get_focused_input() {
@@ -26,7 +22,7 @@ export function get_focused_input() {
 }
 
 /**
- * Returns a JS array of image URLs that need fetching (found during last render).
+ * Image URLs the last render needs; JS fetches them and calls `preload_image`.
  * @returns {any}
  */
 export function get_image_urls() {
@@ -39,8 +35,6 @@ export function init() {
 }
 
 /**
- * Handle a key press while an input element is focused.
- * Updates the input's value in the DOM and re-renders.
  * @param {string} canvas_id
  * @param {string} key
  * @returns {any}
@@ -55,7 +49,6 @@ export function key_press(canvas_id, key) {
 }
 
 /**
- * Preload an image from raw bytes (fetched by JS). Decodes and caches it.
  * @param {string} url
  * @param {Uint8Array} data
  * @returns {boolean}
@@ -70,6 +63,8 @@ export function preload_image(url, data) {
 }
 
 /**
+ * Renders `html`. The same HTML as last time keeps the page (its DOM and JS state)
+ * and only repaints; new HTML loads a fresh page.
  * @param {string} canvas_id
  * @param {string} html
  * @returns {any}
@@ -84,8 +79,8 @@ export function render_html(canvas_id, html) {
 }
 
 /**
- * Re-render for live timer pages: always re-parses HTML and re-executes scripts.
- * JS variables persist via (0,eval) global scope, so counters/state survive.
+ * Live re-render (the page's timer tick): re-runs its scripts on the kept JS state,
+ * as v0.7 did, so pages that redraw from a top-level script stay current.
  * @param {string} canvas_id
  * @param {string} html
  * @returns {any}
@@ -114,8 +109,6 @@ export function render_url(canvas_id, url) {
 }
 
 /**
- * Scroll the viewport by delta_x and delta_y.
- * Re-blits the cached pixel buffer without re-rendering.
  * @param {string} canvas_id
  * @param {number} delta_x
  * @param {number} delta_y
@@ -145,12 +138,6 @@ function __wbg_get_imports() {
         __wbg___wbindgen_is_undefined_c0cca72b82b86f4d: function(arg0) {
             const ret = getObject(arg0) === undefined;
             return ret;
-        },
-        __wbg___wbindgen_number_get_7579aab02a8a620c: function(arg0, arg1) {
-            const obj = getObject(arg1);
-            const ret = typeof(obj) === 'number' ? obj : undefined;
-            getDataViewMemory0().setFloat64(arg0 + 8 * 1, isLikeNone(ret) ? 0 : ret, true);
-            getDataViewMemory0().setInt32(arg0 + 4 * 0, !isLikeNone(ret), true);
         },
         __wbg___wbindgen_string_get_914df97fcfa788f2: function(arg0, arg1) {
             const obj = getObject(arg1);
@@ -199,14 +186,6 @@ function __wbg_get_imports() {
             const ret = getObject(arg0).getElementById(getStringFromWasm0(arg1, arg2));
             return isLikeNone(ret) ? 0 : addHeapObject(ret);
         },
-        __wbg_get_4848e350b40afc16: function(arg0, arg1) {
-            const ret = getObject(arg0)[arg1 >>> 0];
-            return addHeapObject(ret);
-        },
-        __wbg_get_f96702c6245e4ef9: function() { return handleError(function (arg0, arg1) {
-            const ret = Reflect.get(getObject(arg0), getObject(arg1));
-            return addHeapObject(ret);
-        }, arguments); },
         __wbg_height_734034c3ff2654af: function(arg0) {
             const ret = getObject(arg0).height;
             return ret;
@@ -254,17 +233,6 @@ function __wbg_get_imports() {
             const ret = result;
             return ret;
         },
-        __wbg_isArray_db61795ad004c139: function(arg0) {
-            const ret = Array.isArray(getObject(arg0));
-            return ret;
-        },
-        __wbg_length_6e821edde497a532: function(arg0) {
-            const ret = getObject(arg0).length;
-            return ret;
-        },
-        __wbg_log_4c0baeb8af2f8f89: function(arg0) {
-            console.log(getObject(arg0));
-        },
         __wbg_log_dafe9ed5100e3a8c: function(arg0, arg1, arg2, arg3) {
             console.log(getObject(arg0), getObject(arg1), getObject(arg2), getObject(arg3));
         },
@@ -283,7 +251,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return __wasm_bindgen_func_elem_2775(a, state0.b, arg0, arg1);
+                        return __wasm_bindgen_func_elem_674(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -306,10 +274,6 @@ function __wbg_get_imports() {
             const ret = getObject(arg0).now();
             return ret;
         },
-        __wbg_parse_545d11396395fbbd: function() { return handleError(function (arg0, arg1) {
-            const ret = JSON.parse(getStringFromWasm0(arg0, arg1));
-            return addHeapObject(ret);
-        }, arguments); },
         __wbg_performance_5ed3f6a3bbe36d0d: function(arg0) {
             const ret = getObject(arg0).performance;
             return isLikeNone(ret) ? 0 : addHeapObject(ret);
@@ -378,8 +342,8 @@ function __wbg_get_imports() {
             return ret;
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 341, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_2778);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 43, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_659);
             return addHeapObject(ret);
         },
         __wbindgen_cast_0000000000000002: function(arg0) {
@@ -406,10 +370,10 @@ function __wbg_get_imports() {
     };
 }
 
-function __wasm_bindgen_func_elem_2778(arg0, arg1, arg2) {
+function __wasm_bindgen_func_elem_659(arg0, arg1, arg2) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        wasm.__wasm_bindgen_func_elem_2778(retptr, arg0, arg1, addHeapObject(arg2));
+        wasm.__wasm_bindgen_func_elem_659(retptr, arg0, arg1, addHeapObject(arg2));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         if (r1) {
@@ -420,8 +384,8 @@ function __wasm_bindgen_func_elem_2778(arg0, arg1, arg2) {
     }
 }
 
-function __wasm_bindgen_func_elem_2775(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_2775(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_674(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_674(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 

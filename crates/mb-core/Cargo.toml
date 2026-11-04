@@ -1,0 +1,17 @@
+[package]
+name = "mb-core"
+version = "0.8.0"
+edition = "2021"
+description = "MiniBrowser engine: HTML/CSS parsing, layout and painting to an RGBA buffer, no platform code."
+license = "MIT"
+
+[dependencies]
+log = "0.4"
+serde_json = "1"
+html5ever = "0.29"
+markup5ever = "0.14"
+tendril = "0.4"
+cssparser = "0.34"
+tiny-skia = { version = "0.11", default-features = false, features = ["std"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+fontdue = "0.9"

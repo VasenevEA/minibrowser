@@ -1,0 +1,15 @@
+[package]
+name = "mb-fb"
+version = "0.8.0"
+edition = "2021"
+description = "MiniBrowser on a Linux framebuffer with touch input (embedded panels such as the T113)."
+license = "MIT"
+
+[dependencies]
+mb-core = { path = "../mb-core" }
+mb-qjs = { path = "../mb-qjs" }
+libc = "0.2"
+log = "0.4"
+
+[features]
+bindgen = ["mb-qjs/bindgen"]

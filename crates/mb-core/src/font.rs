@@ -6,8 +6,8 @@
 use fontdue;
 
 /// Embedded TTF font data.
-static TTF_SANS: &[u8] = include_bytes!("../assets/DejaVuSans.ttf");
-static TTF_MONO: &[u8] = include_bytes!("../assets/DejaVuSansMono.ttf");
+static TTF_SANS: &[u8] = include_bytes!("../assets/DejaVuSans-hmi.ttf");
+static TTF_MONO: &[u8] = include_bytes!("../assets/DejaVuSansMono-hmi.ttf");
 
 // ---------------------------------------------------------------------------
 // FontduFont — TTF-based font rendering via fontdue (dual-font: sans + mono)
@@ -17,7 +17,9 @@ static TTF_MONO: &[u8] = include_bytes!("../assets/DejaVuSansMono.ttf");
 /// Sans is used by default; mono is used for code/pre elements.
 pub struct FontduFont {
     sans: fontdue::Font,
-    mono: fontdue::Font,
+    /// Parsed on first use: nothing draws monospace text yet, and fontdue keeps
+    /// every glyph outline of a parsed font in memory.
+    mono: std::sync::OnceLock<fontdue::Font>,
 }
 
 impl FontduFont {
@@ -28,12 +30,14 @@ impl FontduFont {
             fontdue::FontSettings::default(),
         )
         .expect("failed to parse embedded TTF sans font");
-        let mono = fontdue::Font::from_bytes(
-            TTF_MONO,
-            fontdue::FontSettings::default(),
-        )
-        .expect("failed to parse embedded TTF mono font");
-        FontduFont { sans, mono }
+        FontduFont { sans, mono: std::sync::OnceLock::new() }
+    }
+
+    /// The process-wide instance: parsing both TTFs costs tens of ms on a Cortex-A7,
+    /// so layout and paint share one instead of parsing per call.
+    pub fn shared() -> &'static FontduFont {
+        static FONT: std::sync::OnceLock<FontduFont> = std::sync::OnceLock::new();
+        FONT.get_or_init(FontduFont::new)
     }
 
     /// Get the active font reference. Default is sans (proportional).
@@ -43,7 +47,10 @@ impl FontduFont {
 
     /// Get the mono font reference (for code/pre elements).
     pub fn mono_font(&self) -> &fontdue::Font {
-        &self.mono
+        self.mono.get_or_init(|| {
+            fontdue::Font::from_bytes(TTF_MONO, fontdue::FontSettings::default())
+                .expect("failed to parse embedded TTF mono font")
+        })
     }
 
     /// Rasterize a single character at the given font size.

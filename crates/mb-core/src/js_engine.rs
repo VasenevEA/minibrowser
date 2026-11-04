@@ -1,14 +1,11 @@
 //! JavaScript execution engine for MiniBrowser.
 //!
-//! Since rquickjs does not compile to wasm32-unknown-unknown, this module uses
-//! the **host browser's** JS engine via `js_sys::eval()`.  We inject a small
-//! mock DOM API that records mutations into a command queue, execute the user
-//! script, then return the list of `DomCommand`s so that the caller can apply
-//! them to the MiniBrowser DOM tree before rendering.
+//! Scripts run on a [`JsHost`]. The host gives them a small DOM API that records
+//! mutations into a command queue and returns the queue as `DomCommand`s, which
+//! this module applies to the MiniBrowser DOM tree before rendering.
 
 use crate::dom::{Document, Node, NodeType};
 use std::collections::HashMap;
-use wasm_bindgen::prelude::*;
 
 // ---------------------------------------------------------------------------
 // DomCommand — the mutations a script can request
@@ -66,322 +63,58 @@ fn collect_scripts(node: &Node, out: &mut Vec<String>) {
 }
 
 // ---------------------------------------------------------------------------
-// Host-JS execution
+// JS host
 // ---------------------------------------------------------------------------
 
-/// Reset all JS state (call when loading a new page).
-pub fn reset_js_state() {
-    let _ = js_sys::eval(
-        "window.__mb_init = false; window.__mb_elements = {}; \
-         window.__mb_cmds = []; window.__mb_handlers = {};"
-    );
+/// The JavaScript engine a page runs on. Each host installs its own DOM glue and
+/// answers with the DOM commands the code produced, as a JSON array of
+/// `{type: "SetTextById", ...}` objects (see `parse_commands`).
+///
+/// Two hosts exist: the browser's own engine through `js_sys::eval` (the wasm
+/// build) and QuickJS (`mb-qjs`, native builds).
+pub trait JsHost {
+    /// Forgets all page state (globals, handlers, timers): a new page is loading.
+    fn reset(&mut self);
+    /// Runs a `<script>` body or an `onclick` attribute at global scope. `now_ms` is
+    /// the page clock that timers set from this code count from.
+    fn run(&mut self, code: &str, now_ms: f64) -> Result<String, String>;
+    /// Runs the timers due at `now_ms` (the page clock: monotonic milliseconds).
+    fn tick(&mut self, now_ms: f64) -> Result<String, String>;
+    /// Milliseconds until the next timer is due, if any is registered.
+    fn next_timer(&self, now_ms: f64) -> Option<f64>;
+    /// Tells scripts what an `<input>` now holds (the user typed into it).
+    fn set_input_value(&mut self, id: &str, value: &str);
 }
 
-/// Build the JS wrapper that:
-/// 1. Sets up mock DOM API (once, persistent across calls)
-/// 2. Patches real Document.prototype.getElementById so (0,eval) code works
-/// 3. Runs user code at global scope via (0,eval)() for var persistence
-/// 4. Restores patched APIs
-/// 5. Returns JSON array of DOM commands
-fn wrap_script(user_code: &str) -> String {
-    format!(
-        r#"(function() {{
-  window.__mb_cmds = [];
-
-  // Setup mock DOM API only once
-  if (!window.__mb_init) {{
-    window.__mb_init = true;
-    window.__mb_elements = {{}};
-    window.__mb_handlers = {{}};
-
-    window.MockElement = function(id) {{
-      this._id = id || '';
-      this._text = '';
-      this._html = '';
-      this._styles = {{}};
-      this._attrs = {{}};
-      this._tag = 'div';
-      this._children = [];
-      this.style = new Proxy({{}}, {{
-        set: function(target, prop, value) {{
-          target[prop] = value;
-          window.__mb_cmds.push({{ type: 'SetStyleById', id: this._id, property: prop, value: String(value) }});
-          return true;
-        }}.bind(this)
-      }});
-    }};
-
-    Object.defineProperty(MockElement.prototype, 'textContent', {{
-      get: function() {{ return this._text; }},
-      set: function(v) {{
-        this._text = String(v);
-        window.__mb_cmds.push({{ type: 'SetTextById', id: this._id, text: this._text }});
-      }}
-    }});
-
-    Object.defineProperty(MockElement.prototype, 'innerHTML', {{
-      get: function() {{ return this._html || this._text; }},
-      set: function(v) {{
-        this._html = String(v);
-        this._text = String(v);
-        window.__mb_cmds.push({{ type: 'SetInnerHtmlById', id: this._id, html: this._html }});
-      }}
-    }});
-
-    Object.defineProperty(MockElement.prototype, 'innerText', {{
-      get: function() {{ return this._text; }},
-      set: function(v) {{
-        this._text = String(v);
-        window.__mb_cmds.push({{ type: 'SetTextById', id: this._id, text: this._text }});
-      }}
-    }});
-
-    // onclick property — store handler globally for later invocation
-    Object.defineProperty(MockElement.prototype, 'onclick', {{
-      get: function() {{ return window.__mb_handlers['click_' + this._id] || null; }},
-      set: function(fn) {{
-        if (typeof fn === 'function') {{
-          // Sanitize ID for use as JS variable name (replace non-alphanumeric with _)
-          var safeId = this._id.replace(/[^a-zA-Z0-9]/g, '_');
-          var handlerId = '__mb_click_' + safeId;
-          window[handlerId] = fn;
-          window.__mb_handlers['click_' + this._id] = fn;
-          window.__mb_cmds.push({{ type: 'SetAttribute', id: this._id, name: 'onclick', value: handlerId + '()' }});
-        }}
-      }}
-    }});
-
-    MockElement.prototype.addEventListener = function(event, fn) {{
-      if (event === 'click' && typeof fn === 'function') {{
-        this.onclick = fn;
-      }}
-    }};
-
-    MockElement.prototype.setAttribute = function(name, value) {{
-      this._attrs[name] = value;
-      window.__mb_cmds.push({{ type: 'SetAttribute', id: this._id, name: name, value: String(value) }});
-    }};
-    MockElement.prototype.getAttribute = function(name) {{
-      return this._attrs[name] || null;
-    }};
-    MockElement.prototype.appendChild = function(child) {{
-      this._children.push(child);
-      window.__mb_cmds.push({{ type: 'CreateElement', tag: child._tag || 'div', parent_id: this._id }});
-      return child;
-    }};
-    MockElement.prototype.removeChild = function(child) {{ return child; }};
-    MockElement.prototype.remove = function() {{}};
-
-    // classList mock
-    Object.defineProperty(MockElement.prototype, 'classList', {{
-      get: function() {{
-        var self = this;
-        return {{
-          add: function(cls) {{ /* no-op for now */ }},
-          remove: function(cls) {{ /* no-op for now */ }},
-          toggle: function(cls) {{ /* no-op for now */ }},
-          contains: function(cls) {{ return false; }}
-        }};
-      }}
-    }});
-
-    // value property for input elements
-    Object.defineProperty(MockElement.prototype, 'value', {{
-      get: function() {{ return this._attrs['value'] || ''; }},
-      set: function(v) {{
-        this._attrs['value'] = String(v);
-        window.__mb_cmds.push({{ type: 'SetAttribute', id: this._id, name: 'value', value: String(v) }});
-      }}
-    }});
-
-    // Canvas 2D context mock
-    MockElement.prototype.getContext = function(type) {{
-      if (type !== '2d') return null;
-      var self = this;
-      var ctx = {{
-        _cmds: [],
-        fillStyle: '#000000',
-        strokeStyle: '#000000',
-        lineWidth: 1,
-        font: '16px sans-serif',
-        fillRect: function(x, y, w, h) {{
-          window.__mb_cmds.push({{type:'CanvasFillRect', id:self._id, x:x, y:y, w:w, h:h, color:this.fillStyle}});
-        }},
-        strokeRect: function(x, y, w, h) {{
-          window.__mb_cmds.push({{type:'CanvasStrokeRect', id:self._id, x:x, y:y, w:w, h:h, color:this.strokeStyle}});
-        }},
-        fillText: function(text, x, y) {{
-          window.__mb_cmds.push({{type:'CanvasFillText', id:self._id, text:text, x:x, y:y, color:this.fillStyle, font:this.font}});
-        }},
-        clearRect: function(x, y, w, h) {{
-          window.__mb_cmds.push({{type:'CanvasClearRect', id:self._id, x:x, y:y, w:w, h:h}});
-        }},
-        beginPath: function() {{}},
-        closePath: function() {{}},
-        moveTo: function() {{}},
-        lineTo: function() {{}},
-        arc: function() {{}},
-        fill: function() {{}},
-        stroke: function() {{}}
-      }};
-      return ctx;
-    }};
-
-    // localStorage mock
-    if (!window.__mb_storage) window.__mb_storage = {{}};
-    window.__mb_localStorage = {{
-      getItem: function(key) {{ return window.__mb_storage[key] || null; }},
-      setItem: function(key, value) {{ window.__mb_storage[key] = String(value); }},
-      removeItem: function(key) {{ delete window.__mb_storage[key]; }},
-      clear: function() {{ window.__mb_storage = {{}}; }},
-      get length() {{ return Object.keys(window.__mb_storage).length; }},
-      key: function(i) {{ return Object.keys(window.__mb_storage)[i] || null; }}
-    }};
-  }}
-
-  // --- Temporarily patch real browser APIs (store originals on window) ---
-
-  window.__mb_origGEBI = Document.prototype.getElementById;
-  Document.prototype.getElementById = function(id) {{
-    if (!window.__mb_elements[id]) {{
-      window.__mb_elements[id] = new MockElement(id);
-    }}
-    return window.__mb_elements[id];
-  }};
-
-  window.__mb_origQS = Document.prototype.querySelector;
-  Document.prototype.querySelector = function(sel) {{
-    if (sel && sel[0] === '#') {{
-      return Document.prototype.getElementById.call(this, sel.slice(1));
-    }}
-    return new MockElement('__qs_' + sel);
-  }};
-
-  window.__mb_origQSA = Document.prototype.querySelectorAll;
-  Document.prototype.querySelectorAll = function(sel) {{
-    return [];
-  }};
-
-  window.__mb_origLS = Object.getOwnPropertyDescriptor(window, 'localStorage');
-  Object.defineProperty(window, 'localStorage', {{ get: function() {{ return window.__mb_localStorage; }} }});
-
-  window.__mb_origCE = document.createElement.bind(document);
-  document.createElement = function(tag) {{
-    var el = new MockElement('');
-    el._tag = tag;
-    return el;
-  }};
-
-  window.__mb_origCL = console.log;
-  window.__mb_origCW = console.warn;
-  window.__mb_origCErr = console.error;
-  console.log = function() {{
-    var msg = Array.prototype.slice.call(arguments).map(function(a) {{
-      return typeof a === 'object' ? JSON.stringify(a) : String(a);
-    }}).join(' ');
-    window.__mb_cmds.push({{ type: 'ConsoleLog', message: msg }});
-  }};
-  console.warn = console.log;
-  console.error = console.log;
-
-  // Track registered intervals/timeouts
-  if (!window.__mb_intervals) {{ window.__mb_intervals = []; }}
-  if (!window.__mb_timeouts) {{ window.__mb_timeouts = []; }}
-
-  // Patch setTimeout/setInterval to capture callbacks
-  window.__mb_origSetTimeout = window.setTimeout;
-  window.__mb_origSetInterval = window.setInterval;
-  window.setTimeout = function(fn, ms) {{
-    if (typeof fn === 'function') {{
-      window.__mb_timeouts.push(fn);
-      fn(); // execute once immediately
-    }}
-    return 0;
-  }};
-  window.setInterval = function(fn, ms) {{
-    if (typeof fn === 'function') {{
-      window.__mb_intervals.push(fn);
-      fn(); // execute once immediately
-    }}
-    return window.__mb_intervals.length - 1;
-  }};
-}})();
-
-// Phase 2: Execute user code at TRUE global scope via (0,eval)().
-// Variables declared with `var` become global and PERSIST across calls.
-try {{
-  (0, eval)({user_code_json});
-}} catch(e) {{
-  window.__mb_cmds.push({{ type: 'ConsoleLog', message: 'JS Error: ' + e.message }});
-}}
-
-// Phase 3: Restore real browser APIs
-Document.prototype.getElementById = window.__mb_origGEBI;
-Document.prototype.querySelector = window.__mb_origQS;
-Document.prototype.querySelectorAll = window.__mb_origQSA;
-if (window.__mb_origLS) Object.defineProperty(window, 'localStorage', window.__mb_origLS);
-document.createElement = window.__mb_origCE;
-console.log = window.__mb_origCL;
-console.warn = window.__mb_origCW;
-console.error = window.__mb_origCErr;
-window.setTimeout = window.__mb_origSetTimeout;
-window.setInterval = window.__mb_origSetInterval;
-
-JSON.stringify(window.__mb_cmds)"#,
-        user_code_json = serde_json::to_string(user_code).unwrap_or_else(|_| "\"\"".to_string())
-    )
-}
-
-/// Execute a single script string via the host browser and return the resulting
-/// DOM commands.
-fn execute_one(script: &str) -> Vec<DomCommand> {
-    let wrapped = wrap_script(script);
-    let result = js_sys::eval(&wrapped);
-    match result {
-        Ok(val) => {
-            if let Some(json_str) = val.as_string() {
-                parse_commands(&json_str)
-            } else {
-                log::warn!("js_engine: eval returned non-string");
-                Vec::new()
-            }
-        }
+/// Runs code on the host and parses what it produced; errors are logged and yield no commands.
+fn run_on(js: &mut dyn JsHost, code: &str, now_ms: f64) -> Vec<DomCommand> {
+    match js.run(code, now_ms) {
+        Ok(json) => parse_commands(&json),
         Err(e) => {
-            let msg = e
-                .as_string()
-                .unwrap_or_else(|| format!("{:?}", e));
-            log::warn!("js_engine: eval error: {}", msg);
+            log::warn!("js_engine: {}", e);
             Vec::new()
         }
     }
 }
 
-/// Parse the JSON array returned by the wrapper into `DomCommand`s.
-fn parse_commands(json: &str) -> Vec<DomCommand> {
-    let parsed = match js_sys::JSON::parse(json) {
-        Ok(v) => v,
-        Err(_) => return Vec::new(),
-    };
-
-    let arr: js_sys::Array = match parsed.dyn_into() {
-        Ok(a) => a,
-        Err(_) => return Vec::new(),
+/// Parse the JSON array returned by a host into `DomCommand`s.
+pub fn parse_commands(json: &str) -> Vec<DomCommand> {
+    let arr = match serde_json::from_str::<serde_json::Value>(json) {
+        Ok(serde_json::Value::Array(a)) => a,
+        _ => return Vec::new(),
     };
 
     let mut cmds = Vec::new();
-    for i in 0..arr.length() {
-        let obj = arr.get(i);
+    for obj in &arr {
         let get = |key: &str| -> String {
-            js_sys::Reflect::get(&obj, &JsValue::from_str(key))
-                .ok()
-                .and_then(|v| v.as_string())
-                .unwrap_or_default()
+            match obj.get(key) {
+                Some(serde_json::Value::String(s)) => s.clone(),
+                Some(serde_json::Value::Null) | None => String::new(),
+                Some(v) => v.to_string(),
+            }
         };
         let get_f32 = |key: &str| -> f32 {
-            js_sys::Reflect::get(&obj, &JsValue::from_str(key))
-                .ok()
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0) as f32
+            obj.get(key).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32
         };
 
         let cmd_type = get("type");
@@ -457,11 +190,7 @@ pub fn apply_commands(doc: &mut Document, commands: &[DomCommand]) {
                 set_inner_html_by_id(&mut doc.root, id, html);
             }
             DomCommand::ConsoleLog { message } => {
-                let _ = message; // used below in wasm target
-                #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&JsValue::from_str(
-                    &format!("[minibrowser JS] {}", message),
-                ));
+                log::info!("[page JS] {}", message);
             }
             DomCommand::CanvasFillRect { id, x, y, w, h, color } => {
                 let json = format!(r#"{{"cmd":"fillRect","x":{},"y":{},"w":{},"h":{},"color":"{}"}}"#, x, y, w, h, color);
@@ -639,7 +368,7 @@ fn camel_to_kebab(s: &str) -> String {
 /// browser's JS engine, and apply the resulting DOM commands back to the tree.
 ///
 /// Returns the number of scripts executed.
-pub fn execute_scripts(doc: &mut Document) -> usize {
+pub fn execute_scripts(doc: &mut Document, js: &mut dyn JsHost, now_ms: f64) -> usize {
     let scripts = extract_scripts(doc);
     let count = scripts.len();
     if count == 0 {
@@ -649,7 +378,7 @@ pub fn execute_scripts(doc: &mut Document) -> usize {
     log::info!("js_engine: executing {} script(s)", count);
 
     for script in &scripts {
-        let commands = execute_one(script);
+        let commands = run_on(js, script, now_ms);
         log::info!("js_engine: script produced {} command(s)", commands.len());
         apply_commands(doc, &commands);
     }
@@ -664,65 +393,29 @@ pub fn execute_scripts(doc: &mut Document) -> usize {
 /// Scripts are NOT re-executed — their state persists in window.* globals.
 ///
 /// Returns the number of commands produced.
-pub fn execute_onclick(doc: &mut Document, onclick_code: &str) -> usize {
+pub fn execute_onclick(doc: &mut Document, js: &mut dyn JsHost, onclick_code: &str, now_ms: f64) -> usize {
     log::info!("js_engine: executing onclick ({} bytes)", onclick_code.len());
 
-    let commands = execute_one(onclick_code);
+    let commands = run_on(js, onclick_code, now_ms);
     log::info!("js_engine: onclick produced {} command(s)", commands.len());
     apply_commands(doc, &commands);
 
     commands.len()
 }
 
-/// Execute all registered setInterval callbacks and apply DOM commands.
-/// Called on re-renders to update dynamic content (clocks, etc.).
-pub fn tick_timers(doc: &mut Document) -> usize {
-    let tick_code = r#"
-        window.__mb_cmds = [];
-        var _gEBI = Document.prototype.getElementById;
-        Document.prototype.getElementById = function(id) {
-            if (!window.__mb_elements[id]) { window.__mb_elements[id] = new MockElement(id); }
-            return window.__mb_elements[id];
-        };
-        var _qs = Document.prototype.querySelector;
-        Document.prototype.querySelector = function(sel) {
-            if (sel && sel[0] === '#') return Document.prototype.getElementById.call(this, sel.slice(1));
-            return new MockElement('');
-        };
-        var _cl = console.log; var _cw = console.warn; var _ce = console.error;
-        console.log = function() {
-            var msg = Array.prototype.slice.call(arguments).map(function(a) {
-                return typeof a === 'object' ? JSON.stringify(a) : String(a);
-            }).join(' ');
-            window.__mb_cmds.push({ type: 'ConsoleLog', message: msg });
-        };
-        console.warn = console.log; console.error = console.log;
-        try {
-            var intervals = window.__mb_intervals || [];
-            for (var i = 0; i < intervals.length; i++) {
-                if (typeof intervals[i] === 'function') intervals[i]();
-            }
-        } catch(e) {
-            window.__mb_cmds.push({ type: 'ConsoleLog', message: 'Timer Error: ' + e.message });
+/// Runs the timers due at `now_ms` and applies their DOM commands.
+///
+/// Returns the number of commands produced (0 means nothing to repaint).
+pub fn tick_timers(doc: &mut Document, js: &mut dyn JsHost, now_ms: f64) -> usize {
+    let commands = match js.tick(now_ms) {
+        Ok(json) => parse_commands(&json),
+        Err(e) => {
+            log::warn!("js_engine: timer: {}", e);
+            return 0;
         }
-        Document.prototype.getElementById = _gEBI;
-        Document.prototype.querySelector = _qs;
-        console.log = _cl; console.warn = _cw; console.error = _ce;
-        JSON.stringify(window.__mb_cmds)
-    "#;
-
-    let result = js_sys::eval(tick_code);
-    match result {
-        Ok(val) => {
-            if let Some(json_str) = val.as_string() {
-                let commands = parse_commands(&json_str);
-                let count = commands.len();
-                apply_commands(doc, &commands);
-                count
-            } else { 0 }
-        }
-        Err(_) => 0,
-    }
+    };
+    apply_commands(doc, &commands);
+    commands.len()
 }
 
 /// Recursively remove `<script>` elements from the tree.
