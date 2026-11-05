@@ -67,11 +67,11 @@ wasm-pack build --release --target web --out-dir www-pkg   # браузерна�
 | | |
 |---|---|
 | загрузка страницы | ~240 мс (из них ~200 мс — разбор шрифтов) |
-| кадр по таймеру | стили 4 + раскладка 8 + отрисовка 15 мс, вывод в fb 13 мс |
+| кадр по таймеру | стили 4 + раскладка 8 + отрисовка 4,5 мс (перерисовываются только изменившиеся прямоугольники), вывод в fb ~1 мс (mmap) |
 | тап → обработчик → кадр | 33–36 мс |
-| CPU при тике раз в секунду | ~5% |
+| CPU при тике раз в секунду | ~3–5% |
 | RAM | ~19 МБ |
-| бинарник | ~3,2 МБ (движок, QuickJS, шрифты с кириллицей) |
+| бинарник | ~3,5 МБ (движок, QuickJS, resvg, шрифты с кириллицей) |
 
 ## Что поддерживается
 
@@ -83,9 +83,19 @@ wasm-pack build --release --target web --out-dir www-pkg   # браузерна�
   min/max-width, box-sizing, рамки по сторонам, border-radius.
 - Текст: DejaVu Sans обычный и жирный (урезаны до нужных HMI диапазонов:
   латиница, кириллица, ₽, ₂, ●▲, стрелки, ✓), text-align, line-height.
-- JS: QuickJS (натив) или JS хост-браузера (WASM): getElementById,
-  textContent/innerHTML/style/value, onclick/addEventListener, setTimeout,
-  setInterval, requestAnimationFrame, localStorage, canvas 2D (fillRect/fillText).
+- Встроенный `<svg>` через resvg (пути, дуги, градиенты, transform; без `<text>`),
+  JS меняет его через setAttribute — стрелочные приборы, баки, мнемосхемы.
+- `overflow: hidden`, перерисовка только изменившихся областей (сравнение
+  деревьев боксов).
+- JS: QuickJS (натив) или JS хост-браузера (WASM): getElementById (элементы с id
+  видят текст и атрибуты страницы), textContent/innerHTML/style/value,
+  classList/className, onclick/addEventListener, setTimeout, setInterval,
+  requestAnimationFrame, localStorage, canvas 2D (fillRect/fillText),
+  `fetch()` локальных файлов (рядом со страницей и в /tmp).
+
+Демо для панели: `www/demo/demo21-panel.html` (котельная, таймеры),
+`demo22-svg-gauges.html` (SVG-приборы), `demo23-dash.html` (дашборд из
+`/tmp/dash.json`).
 
 ## License
 
