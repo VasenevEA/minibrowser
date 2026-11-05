@@ -1,0 +1,44 @@
+// The examples' window: a Slint header and an HtmlView below.
+import { HtmlView } from "html-view.slint";
+import { Button } from "std-widgets.slint";
+
+export component App inherits Window {
+    title: "MiniBrowser in Slint";
+    width: 800px;
+    height: 540px;
+    background: #0b1020;
+    in property <image> page-frame;
+    in property <string> status: "";
+    callback page-tapped(length, length);
+    callback reload();
+
+    VerticalLayout {
+        HorizontalLayout {
+            height: 60px;
+            padding: 10px;
+            spacing: 10px;
+            Text {
+                text: "Slint · HtmlView";
+                color: #7dd3fc;
+                font-size: 20px;
+                vertical-alignment: center;
+            }
+            Text {
+                text: root.status;
+                color: #94a3b8;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            Button {
+                text: "Перезагрузить";
+                clicked => { root.reload(); }
+            }
+        }
+        HtmlView {
+            width: 800px;
+            height: 480px;
+            frame: root.page-frame;
+            tapped(x, y) => { root.page-tapped(x, y); }
+        }
+    }
+}
