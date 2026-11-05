@@ -21,6 +21,8 @@ pub struct HitRegion {
     pub id: String,
     /// Whether this is a focusable input element.
     pub is_input: bool,
+    /// The DOM node's uid (live DOM: any element can listen for taps).
+    pub uid: u32,
 }
 
 /// Which layout code positions the boxes.
@@ -83,12 +85,41 @@ pub struct Page {
     /// The styled tree of the last full render, for repaints that skip styling.
     styled: Option<css::StyledNode>,
     canvases: crate::canvas::Canvases,
+    /// The live DOM scripts work on, if the JS host takes one.
+    live: Option<Live>,
+}
+
+/// What the page shares with its live DOM (`live::CoreDom`).
+struct Live {
+    /// Holds the document while a script runs.
+    slot: std::rc::Rc<std::cell::RefCell<Option<dom::Document>>>,
+    log: std::rc::Rc<std::cell::RefCell<Vec<js_engine::DomCommand>>>,
+    structural: std::rc::Rc<std::cell::Cell<bool>>,
+    /// Element boxes of the last render (uid → x, y, w, h), for getBoundingClientRect.
+    rects: std::rc::Rc<std::cell::RefCell<HashMap<u32, [f32; 4]>>>,
 }
 
 impl Page {
-    pub fn new(js: Box<dyn JsHost>, width: u32, height: u32) -> Self {
+    pub fn new(mut js: Box<dyn JsHost>, width: u32, height: u32) -> Self {
+        // MB_DOM=ids keeps the by-id elements and commands of v0.7.
+        let live = (std::env::var("MB_DOM").map_or(true, |v| v != "ids")).then(|| Live {
+            slot: Default::default(),
+            log: Default::default(),
+            structural: Default::default(),
+            rects: Default::default(),
+        });
+        let live = live.filter(|l| {
+            js.set_dom(std::rc::Rc::new(std::cell::RefCell::new(crate::live::CoreDom {
+                doc: l.slot.clone(),
+                log: l.log.clone(),
+                structural: l.structural.clone(),
+                rects: l.rects.clone(),
+                viewport: (width, height),
+            })))
+        });
         Page {
             js,
+            live,
             document: None,
             width,
             height,
@@ -122,12 +153,22 @@ impl Page {
         let mut doc = html_parser::parse_html(html);
         self.seeded.clear();
         self.canvases.clear();
-        self.seed_js(&doc);
-        let script_count = js_engine::execute_scripts(&mut doc, self.js.as_mut(), self.now_ms);
-        if script_count > 0 {
-            log::info!("Executed {} script(s), DOM updated", script_count);
+        if self.live.is_some() {
+            let scripts = js_engine::extract_scripts(&doc);
+            js_engine::remove_script_elements(&mut doc.root);
+            self.document = Some(doc);
+            for code in scripts {
+                self.run_js(&code);
+            }
+            self.run_js("__mb_loaded()");
+        } else {
+            self.seed_js(&doc);
+            let script_count = js_engine::execute_scripts(&mut doc, self.js.as_mut(), self.now_ms);
+            if script_count > 0 {
+                log::info!("Executed {} script(s), DOM updated", script_count);
+            }
+            self.document = Some(doc);
         }
-        self.document = Some(doc);
         self.draw_canvases();
         self.focused_input = None;
         self.scroll_x = 0.0;
@@ -165,6 +206,13 @@ impl Page {
     /// that the page's first timers are set on their clock.
     pub fn tick(&mut self, now_ms: f64) -> bool {
         self.now_ms = now_ms;
+        if self.document.is_none() {
+            return false;
+        }
+        if self.live.is_some() {
+            let (cmds, structural) = self.run_js_with(|js, now| js.tick(now));
+            return self.after_js(cmds, structural);
+        }
         let Some(doc) = self.document.as_mut() else { return false };
         let cmds = js_engine::tick_timers(doc, self.js.as_mut(), now_ms);
         if cmds.is_empty() {
@@ -187,6 +235,24 @@ impl Page {
     pub fn click(&mut self, x: f32, y: f32) -> bool {
         let page_x = x + self.scroll_x;
         let page_y = y + self.scroll_y;
+
+        // Live DOM: a click event on the innermost element there, bubbling.
+        if self.live.is_some() {
+            let hit = self.hit_regions.iter().rev().find(|r| {
+                page_x >= r.x && page_x <= r.x + r.w && page_y >= r.y && page_y <= r.y + r.h
+            }).cloned();
+            let Some(hit) = hit else { return false };
+            if hit.is_input && !hit.id.is_empty() {
+                self.focused_input = Some(hit.id.clone());
+            }
+            let code = format!(
+                "__mb_dispatch({}, 'click', {{clientX: {x}, clientY: {y}, pageX: {page_x}, pageY: {page_y}, offsetX: {}, offsetY: {}}})",
+                hit.uid, page_x - hit.x, page_y - hit.y
+            );
+            let (cmds, structural) = self.run_js(&code);
+            self.after_js(cmds, structural);
+            return true;
+        }
 
         // Later (more deeply nested / on-top) elements win.
         let hit = self.hit_regions.iter().rev().find(|r| {
@@ -381,6 +447,51 @@ impl Page {
         }
     }
 
+    /// Runs `code` on the live DOM (the document lent to it meanwhile); applies
+    /// the commands it still queues (canvas, console). Returns them with the
+    /// live DOM's by-id log, and whether it changed the tree's shape.
+    fn run_js(&mut self, code: &str) -> (Vec<js_engine::DomCommand>, bool) {
+        let code = code.to_string();
+        self.run_js_with(move |js, now| js.run(&code, now))
+    }
+
+    fn run_js_with(&mut self, f: impl FnOnce(&mut dyn JsHost, f64) -> Result<String, String>) -> (Vec<js_engine::DomCommand>, bool) {
+        let Some(live) = self.live.as_ref() else { return (Vec::new(), false) };
+        *live.slot.borrow_mut() = self.document.take();
+        let out = f(self.js.as_mut(), self.now_ms);
+        let live = self.live.as_ref().unwrap();
+        self.document = live.slot.borrow_mut().take();
+        let mut cmds = match out {
+            Ok(json) => js_engine::parse_commands(&json),
+            Err(e) => {
+                log::warn!("JS: {e}");
+                Vec::new()
+            }
+        };
+        if let Some(doc) = self.document.as_mut() {
+            js_engine::apply_commands(doc, &cmds);
+        }
+        cmds.append(&mut live.log.borrow_mut());
+        (cmds, live.structural.replace(false))
+    }
+
+    /// Repaints for what a script did on the live DOM. Returns true if it did.
+    fn after_js(&mut self, cmds: Vec<js_engine::DomCommand>, structural: bool) -> bool {
+        let canvases = self.draw_canvases();
+        if structural {
+            self.render();
+            return true;
+        }
+        let visible = cmds.iter().any(|c| !matches!(c, js_engine::DomCommand::ConsoleLog { .. }));
+        if !visible && canvases.is_empty() {
+            return false;
+        }
+        if !self.update_drawings_only(&cmds, &canvases) {
+            self.render();
+        }
+        true
+    }
+
     fn set_focus(&mut self, id: Option<String>) -> bool {
         if self.focused_input == id {
             return false;
@@ -558,7 +669,10 @@ impl Page {
         let total_width = layout_root.margin_box_width().max(self.width as f32);
 
         let mut regions = Vec::new();
-        collect_hit_regions(&styled.root, &layout_root, &mut regions);
+        collect_hit_regions(&styled.root, &layout_root, &mut regions, self.live.is_some());
+        if let Some(live) = &self.live {
+            *live.rects.borrow_mut() = regions.iter().map(|r| (r.uid, [r.x, r.y, r.w, r.h])).collect();
+        }
         self.hit_regions = regions;
 
         let page_w = (total_width as u32).max(self.width).min(4000);
@@ -872,13 +986,14 @@ fn collect_hit_regions(
     styled: &css::StyledNode,
     layout_box: &layout::LayoutBox,
     out: &mut Vec<HitRegion>,
+    all: bool,
 ) {
     if let dom::NodeType::Element(ref data) = styled.node_type {
         let onclick = data.attributes.get("onclick").cloned().unwrap_or_default();
         let id = data.id().unwrap_or("").to_string();
         let is_input = matches!(data.tag_name.as_str(), "input" | "textarea");
 
-        if !onclick.is_empty() || is_input {
+        if !onclick.is_empty() || is_input || all {
             let bx = layout_box.x + layout_box.margin.left;
             let by = layout_box.y + layout_box.margin.top;
             let bw = layout_box.border.left
@@ -900,6 +1015,7 @@ fn collect_hit_regions(
                 onclick,
                 id,
                 is_input,
+                uid: styled.uid,
             });
         }
     }
@@ -915,7 +1031,7 @@ fn collect_hit_regions(
 
     for (i, child_styled) in visible_styled.iter().enumerate() {
         if let Some(child_layout) = layout_box.children.get(i) {
-            collect_hit_regions(child_styled, child_layout, out);
+            collect_hit_regions(child_styled, child_layout, out, all);
         }
     }
 }

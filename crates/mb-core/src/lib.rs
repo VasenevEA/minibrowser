@@ -13,6 +13,7 @@ pub mod html_parser;
 pub mod js_engine;
 pub mod layout;
 pub mod layout_taffy;
+pub mod live;
 pub mod page;
 pub mod paint;
 pub mod svg;

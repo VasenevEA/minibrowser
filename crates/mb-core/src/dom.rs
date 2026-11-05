@@ -50,6 +50,15 @@ impl ElementData {
 pub struct Node {
     pub node_type: NodeType,
     pub children: Vec<Node>,
+    /// Stable identity for scripts (the live DOM): unique among nodes made in
+    /// this process. A clone keeps it; `Node::renumber` gives fresh ones.
+    pub uid: u32,
+}
+
+static NEXT_UID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+fn next_uid() -> u32 {
+    NEXT_UID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 impl Node {
@@ -58,6 +67,7 @@ impl Node {
         Node {
             node_type: NodeType::Element(ElementData::new(tag_name.to_lowercase(), attributes)),
             children: Vec::new(),
+            uid: next_uid(),
         }
     }
 
@@ -66,6 +76,7 @@ impl Node {
         Node {
             node_type: NodeType::Text(text.to_string()),
             children: Vec::new(),
+            uid: next_uid(),
         }
     }
 
@@ -74,7 +85,38 @@ impl Node {
         Node {
             node_type: NodeType::Document,
             children: Vec::new(),
+            uid: next_uid(),
         }
+    }
+
+    /// Fresh uids for this node and its subtree (a copy made by cloneNode).
+    pub fn renumber(&mut self) {
+        self.uid = next_uid();
+        for c in &mut self.children {
+            c.renumber();
+        }
+    }
+
+    /// Indices from this node down to the node with `uid`.
+    pub fn path_to(&self, uid: u32) -> Option<Vec<usize>> {
+        if self.uid == uid {
+            return Some(Vec::new());
+        }
+        for (i, c) in self.children.iter().enumerate() {
+            if let Some(mut p) = c.path_to(uid) {
+                p.insert(0, i);
+                return Some(p);
+            }
+        }
+        None
+    }
+
+    pub fn at_path(&self, path: &[usize]) -> Option<&Node> {
+        path.iter().try_fold(self, |n, &i| n.children.get(i))
+    }
+
+    pub fn at_path_mut(&mut self, path: &[usize]) -> Option<&mut Node> {
+        path.iter().try_fold(self, |n, &i| n.children.get_mut(i))
     }
 
     /// Append a child node, returning a mutable reference to it.
@@ -276,6 +318,8 @@ pub struct Document {
     pub root: Node,
     /// Canvas drawing calls from scripts not yet drawn by the page (canvas id, call).
     pub canvas_ops: Vec<(String, crate::canvas::Op)>,
+    /// Nodes scripts made or took out of the tree and hold on to.
+    pub detached: Vec<Node>,
 }
 
 impl Document {
@@ -284,6 +328,7 @@ impl Document {
         Document {
             canvas_ops: Vec::new(),
             root: Node::new_document(),
+            detached: Vec::new(),
         }
     }
 

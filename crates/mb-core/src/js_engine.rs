@@ -279,7 +279,7 @@ fn set_inner_html_by_id(node: &mut Node, id: &str, html: &str) {
 }
 
 /// Extract children from the `<body>` element (or fall back to all descendants).
-fn extract_body_children(root: &Node) -> Vec<Node> {
+pub(crate) fn extract_body_children(root: &Node) -> Vec<Node> {
     if let NodeType::Element(ref data) = root.node_type {
         if data.tag_name == "body" {
             return root.children.clone();
@@ -309,30 +309,35 @@ fn extract_body_children(root: &Node) -> Vec<Node> {
 fn set_style_by_id(node: &mut Node, id: &str, property: &str, value: &str) {
     if let NodeType::Element(ref mut data) = node.node_type {
         if data.id() == Some(id) {
-            let css_prop = camel_to_kebab(property);
             let style_attr = data
                 .attributes
                 .entry("style".to_string())
                 .or_insert_with(String::new);
-            // Replace the property's earlier value: animations set it every frame.
-            let mut decls: Vec<String> = style_attr
-                .split(';')
-                .filter(|d| {
-                    let name = d.split(':').next().unwrap_or("").trim();
-                    !name.is_empty() && !name.eq_ignore_ascii_case(&css_prop)
-                })
-                .map(|d| d.trim().to_string())
-                .collect();
-            if !value.trim().is_empty() {
-                decls.push(format!("{}:{}", css_prop, value));
-            }
-            *style_attr = decls.iter().map(|d| format!("{d};")).collect();
+            set_style_decl(style_attr, property, value);
             return;
         }
     }
     for child in &mut node.children {
         set_style_by_id(child, id, property, value);
     }
+}
+
+/// Sets one property in a `style` attribute's text, replacing its earlier
+/// value (animations set it every frame); an empty value removes it.
+pub(crate) fn set_style_decl(style_attr: &mut String, property: &str, value: &str) {
+    let css_prop = camel_to_kebab(property);
+    let mut decls: Vec<String> = style_attr
+        .split(';')
+        .filter(|d| {
+            let name = d.split(':').next().unwrap_or("").trim();
+            !name.is_empty() && !name.eq_ignore_ascii_case(&css_prop)
+        })
+        .map(|d| d.trim().to_string())
+        .collect();
+    if !value.trim().is_empty() {
+        decls.push(format!("{}:{}", css_prop, value));
+    }
+    *style_attr = decls.iter().map(|d| format!("{d};")).collect();
 }
 
 /// Create a new element and append it under the parent with the given id.
@@ -436,7 +441,7 @@ pub fn tick_timers(doc: &mut Document, js: &mut dyn JsHost, now_ms: f64) -> Vec<
 }
 
 /// Recursively remove `<script>` elements from the tree.
-fn remove_script_elements(node: &mut Node) {
+pub(crate) fn remove_script_elements(node: &mut Node) {
     node.children.retain(|child| {
         if let NodeType::Element(ref data) = child.node_type {
             data.tag_name != "script"

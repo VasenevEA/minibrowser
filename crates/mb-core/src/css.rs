@@ -540,6 +540,8 @@ const INHERITED_PROPERTIES: &[&str] = &[
 pub struct StyledNode {
     /// The original node type (tag name or text).
     pub node_type: NodeType,
+    /// The DOM node's uid (see `dom::Node::uid`).
+    pub uid: u32,
     /// Computed style properties.
     pub styles: StyleMap,
     /// Styled children.
@@ -746,6 +748,7 @@ fn style_node(node: &Node, parent_styles: &StyleMap, rules: &[CSSRule], ancestor
 
     StyledNode {
         node_type: node.node_type.clone(),
+        uid: node.uid,
         styles,
         children,
     }
@@ -963,7 +966,7 @@ impl Selector {
     /// Parses a complex selector (`.a > .b c`). None for what this engine cannot
     /// match (pseudo-classes, attribute selectors, sibling combinators), so the
     /// rule is skipped rather than applied too widely.
-    fn parse_complex(input: &str) -> Option<Self> {
+    pub(crate) fn parse_complex(input: &str) -> Option<Self> {
         if input.contains([':', '[', '+', '~']) {
             return None;
         }

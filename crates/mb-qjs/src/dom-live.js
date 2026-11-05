@@ -18,6 +18,7 @@ function __mb_wrap(nid) {
   var n = __mb_nodes[nid];
   if (n) return n;
   var t = __mb_d('type', nid);
+  if (t === 9) return document;
   n = t === 1 ? new Element(nid) : t === 3 ? new Text(nid) : t === 9 ? document : new Node(nid);
   n.nodeType = t;
   __mb_nodes[nid] = n;
@@ -380,9 +381,9 @@ Element.prototype.getContext = function (type) {
 
 var __mb_docListeners = 'doc';
 var document = Object.create(Node.prototype);
-document._nid = __mb_d('root');
+// The engine may only hand over its document later (while scripts run).
+Object.defineProperty(document, '_nid', { get: function () { return __mb_d('root'); } });
 document.nodeType = 9;
-__mb_nodes[document._nid] = document;
 document.getElementById = function (id) { return __mb_wrap(__mb_d('byId', String(id))); };
 document.querySelector = function (s) { return __mb_wrap(__mb_d('query', null, String(s))); };
 document.querySelectorAll = function (s) { return __mb_wrapAll(__mb_d('queryAll', null, String(s))); };
