@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+<head>
+<style>
+body { margin: 0; background: #000; color: #e8edf5; font-size: 13px; }
+.wrap { display: flex; }
+#screen { width: 640px; height: 400px; }
+.pad { width: 160px; height: 230px; display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 0 0 0; justify-content: center; }
+.k { width: 70px; height: 46px; background: #1c2533; border: 1px solid #2c3a50; border-radius: 8px; color: #e8edf5; font-size: 15px; font-weight: bold; text-align: center; line-height: 46px; }
+.fire { background: #7f1d1d; border-color: #f87171; }
+.bar { height: 80px; padding: 6px 10px; color: #7c899e; }
+#fps { color: #38bdf8; font-weight: bold; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <canvas id="screen" width="320" height="200"></canvas>
+    <div class="pad">
+      <div id="k-esc" class="k">ESC</div><div id="k-enter" class="k">ENTER</div>
+      <div id="k-up" class="k">▲</div><div id="k-use" class="k">USE</div>
+      <div id="k-left" class="k">◀</div><div id="k-right" class="k">▶</div>
+      <div id="k-down" class="k">▼</div><div id="k-fire" class="k fire">FIRE</div>
+    </div>
+  </div>
+  <div class="bar">DOOM (shareware, doomgeneric → JavaScript, без WebAssembly) в MiniBrowser · <span id="fps">загрузка…</span></div>
+
+  <script>var DOOM_STEP = 30;</script>
+  <script>
+    // Doom keys (doomkeys.h).
+    var KEYS = { esc: 27, enter: 13, up: 0xad, down: 0xaf, left: 0xac, right: 0xae, fire: 0xa3, use: 0xa2 };
+    var ctx = document.getElementById('screen').getContext('2d');
+    var frames = 0, fpsAt = 0;
+    var Module = {
+      arguments: ['-iwad', '/doom1.wad', '-config', '/default.cfg'],
+      mbKeys: [],
+      // At most this much game time per frame (window.DOOM_STEP, ms; 0: real time).
+      mbMaxStep: window.DOOM_STEP || 0,
+      preRun: [function () {
+        FS.writeFile('/doom1.wad', new Uint8Array(Module.wad));
+        // Low detail draws walls and floors at half the horizontal resolution.
+        FS.writeFile('/default.cfg', 'detaillevel ' + (window.DOOM_LOW ? 1 : 0) + '\nscreenblocks ' + (window.DOOM_BLOCKS || 10) + '\n');
+      }],
+      print: function (s) { console.log(s); },
+      printErr: function (s) { console.log(s); },
+      mbFrame: function (px, w, h) {
+        // A copy of the frame: putImageData hands its buffer to the engine.
+        ctx.putImageData({ width: w, height: h, data: new Uint8ClampedArray(px) }, 0, 0);
+        frames++;
+        var now = Date.now();
+        if (now - fpsAt >= 2000) {
+          if (fpsAt) document.getElementById('fps').textContent = (frames * 1000 / (now - fpsAt)).toFixed(1) + ' fps';
+          frames = 0; fpsAt = now;
+        }
+      }
+    };
+    // A tap is a short key press.
+    Object.keys(KEYS).forEach(function (name) {
+      document.getElementById('k-' + name).onclick = function () {
+        Module.mbKeys.push(256 | KEYS[name]);
+        setTimeout(function () { Module.mbKeys.push(KEYS[name]); }, name == 'fire' || name == 'use' ? 150 : 350);
+      };
+    });
+    fetch('doom1.wad').then(function (r) { return r.arrayBuffer(); }).then(function (b) { Module.wad = b; });
+  </script>
+  <script src="doom.js"></script>
+</body>
+</html>

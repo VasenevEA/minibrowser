@@ -30,9 +30,15 @@ body { margin: 0; background: #000; color: #e8edf5; font-size: 13px; }
     var ctx = document.getElementById('screen').getContext('2d');
     var frames = 0, fpsAt = 0;
     var Module = {
-      arguments: ['-iwad', '/doom1.wad'],
+      arguments: ['-iwad', '/doom1.wad', '-config', '/default.cfg'],
       mbKeys: [],
-      preRun: [function () { FS.writeFile('/doom1.wad', new Uint8Array(Module.wad)); }],
+      // At most this much game time per frame (window.DOOM_STEP, ms; 0: real time).
+      mbMaxStep: window.DOOM_STEP || 0,
+      preRun: [function () {
+        FS.writeFile('/doom1.wad', new Uint8Array(Module.wad));
+        // Low detail draws walls and floors at half the horizontal resolution.
+        FS.writeFile('/default.cfg', 'detaillevel ' + (window.DOOM_LOW ? 1 : 0) + '\nscreenblocks ' + (window.DOOM_BLOCKS || 10) + '\n');
+      }],
       print: function (s) { console.log(s); },
       printErr: function (s) { console.log(s); },
       mbFrame: function (px, w, h) {
