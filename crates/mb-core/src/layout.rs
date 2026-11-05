@@ -663,7 +663,7 @@ impl LayoutBox {
         // 3. Check if children are all inline elements — if so, use inline flow.
         //    Bare text children in a block context still stack vertically.
         let has_inline_elements = self.children.iter().any(|c| {
-            matches!(c.content, BoxContent::Inline)
+            matches!(c.content, BoxContent::Inline | BoxContent::Image { .. })
         });
         let all_inline = !self.children.is_empty() && has_inline_elements && self.children.iter().all(|c| {
             matches!(c.content, BoxContent::Inline | BoxContent::Text(_) | BoxContent::Image { .. })
@@ -720,8 +720,12 @@ impl LayoutBox {
             // the bottom-most child relative to the content area top.
             let content_top = self.content_y();
             let mut max_bottom: f32 = content_top;
+            let below_image = self.image_descent();
             for child in &self.children {
-                let child_bottom = child.y + child.margin_box_height();
+                let mut child_bottom = child.y + child.margin_box_height();
+                if matches!(child.content, BoxContent::Image { .. }) {
+                    child_bottom += below_image;
+                }
                 if child_bottom > max_bottom {
                     max_bottom = child_bottom;
                 }
@@ -756,6 +760,15 @@ impl LayoutBox {
 
     /// Shifts each line of inline children (children sharing a top edge) right by
     /// all or half of the space it leaves, for `text-align: right` / `center`.
+    /// Room a line keeps below an inline image: the image sits on the baseline,
+    /// and the parent font's descent and half-leading stay below it, as in
+    /// browsers (CSS 2.1 §10.8).
+    fn image_descent(&self) -> f32 {
+        let (ascent, descent, normal) = crate::font::FontduFont::shared().line_metrics(self.font_size);
+        let lh = if self.line_height > 0.0 { self.line_height } else { normal };
+        (descent + (lh - (ascent + descent)) / 2.0).max(0.0)
+    }
+
     fn align_inline_lines(&mut self) {
         fn shift(node: &mut LayoutBox, dx: f32) {
             node.x += dx;
@@ -800,6 +813,7 @@ impl LayoutBox {
         let mut cursor_x = content_x;
         let mut cursor_y = content_y;
         let mut line_height: f32 = 0.0;
+        let below_image = self.image_descent();
 
         for child in &mut self.children {
             // For text nodes with leading whitespace, advance cursor by one space
@@ -870,7 +884,11 @@ impl LayoutBox {
             };
             child.layout(cursor_x, cursor_y, layout_width, 0.0);
             cursor_x += child.margin_box_width();
-            line_height = line_height.max(child.margin_box_height());
+            let mut h = child.margin_box_height();
+            if matches!(child.content, BoxContent::Image { .. }) {
+                h += below_image;
+            }
+            line_height = line_height.max(h);
         }
 
         // Post-pass: reposition float:right children to the right edge
