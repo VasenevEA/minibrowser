@@ -84,6 +84,10 @@ pub trait JsHost {
     fn next_timer(&self, now_ms: f64) -> Option<f64>;
     /// Tells scripts what an `<input>` now holds (the user typed into it).
     fn set_input_value(&mut self, id: &str, value: &str);
+    /// Gives scripts the current text and attributes of elements with an id
+    /// (`[{id, text, attrs}]` as JSON), so reads like `textContent` and
+    /// `classList.contains` see the document. Hosts that cannot use it ignore it.
+    fn seed(&mut self, _elements_json: &str) {}
 }
 
 /// Runs code on the host and parses what it produced; errors are logged and yield no commands.

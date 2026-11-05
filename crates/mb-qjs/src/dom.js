@@ -64,9 +64,27 @@ Object.defineProperty(MockElement.prototype, 'onclick', {
     __mb_push({ type: 'SetAttribute', id: this._id, name: 'onclick', value: name + '.call(document.getElementById(' + JSON.stringify(this._id) + '))' });
   }
 });
+Object.defineProperty(MockElement.prototype, 'className', {
+  get: function () { return this._attrs['class'] || ''; },
+  set: function (v) { this.setAttribute('class', String(v)); }
+});
 Object.defineProperty(MockElement.prototype, 'classList', {
   get: function () {
-    return { add: function () {}, remove: function () {}, toggle: function () {}, contains: function () { return false; } };
+    var el = this;
+    var list = function () { return (el._attrs['class'] || '').split(/\s+/).filter(function (c) { return c; }); };
+    var save = function (l) { el.setAttribute('class', l.join(' ')); };
+    return {
+      add: function () { var l = list(); for (var i = 0; i < arguments.length; i++) if (l.indexOf(arguments[i]) < 0) l.push(arguments[i]); save(l); },
+      remove: function () { var a = Array.prototype.slice.call(arguments); save(list().filter(function (c) { return a.indexOf(c) < 0; })); },
+      toggle: function (c, force) {
+        var l = list(), has = l.indexOf(c) >= 0, want = force === undefined ? !has : !!force;
+        if (want && !has) l.push(c); else if (!want && has) l = l.filter(function (x) { return x !== c; });
+        save(l);
+        return want;
+      },
+      contains: function (c) { return list().indexOf(c) >= 0; },
+      get length() { return list().length; }
+    };
   }
 });
 MockElement.prototype.addEventListener = function (event, fn) {
@@ -100,6 +118,16 @@ MockElement.prototype.getContext = function (type) {
     beginPath: noop, closePath: noop, moveTo: noop, lineTo: noop, arc: noop, fill: noop, stroke: noop
   };
 };
+
+// Called by the engine with the document's elements that have an id: their
+// current text and attributes, so scripts can read them.
+function __mb_seed(list) {
+  for (var i = 0; i < list.length; i++) {
+    var e = list[i], el = __mb_el(e.id);
+    el._text = e.text;
+    el._attrs = e.attrs || {};
+  }
+}
 
 function __mb_el(id) {
   if (!__mb_elements[id]) __mb_elements[id] = new MockElement(id);

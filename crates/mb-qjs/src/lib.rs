@@ -73,6 +73,15 @@ impl JsHost for QuickJs {
         })
     }
 
+    fn seed(&mut self, elements_json: &str) {
+        let code = format!("__mb_seed({elements_json})");
+        self.ctx.with(|ctx| {
+            if let Err(e) = ctx.eval::<(), _>(code).catch(&ctx) {
+                log::warn!("JS seed: {}", e);
+            }
+        });
+    }
+
     fn set_input_value(&mut self, id: &str, value: &str) {
         let id = js_string(id);
         let value = js_string(value);
@@ -181,6 +190,23 @@ mod tests {
             assert!(worst <= 2, "tick {i}: partial repaint differs from a full paint by up to {worst}");
         }
         assert!(partial > 0, "no tick was repainted partially");
+    }
+
+    #[test]
+    fn scripts_read_the_document_and_toggle_classes() {
+        let html = r#"<html><head><style>.alarm { color: #f00 }</style></head><body>
+          <div id="v" class="card">41</div><div id="out"></div>
+          <script>
+            var v = document.getElementById('v');
+            var n = parseInt(v.textContent) + 1;
+            v.classList.add('alarm');
+            document.getElementById('out').textContent = n + ' ' + v.classList.contains('card') + ' ' + v.className;
+          </script></body></html>"#;
+        let mut page = Page::new(Box::new(QuickJs::new()), 320, 200);
+        page.load(html);
+        assert_eq!(text_of(&page, "out"), "42 true card alarm");
+        let v = page.document().unwrap().root.get_element_by_id("v").unwrap();
+        assert_eq!(v.element_data().unwrap().attributes.get("class").map(String::as_str), Some("card alarm"));
     }
 
     #[test]

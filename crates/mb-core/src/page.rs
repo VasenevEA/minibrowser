@@ -77,6 +77,8 @@ pub struct Page {
     quirks: bool,
     /// Page rectangles repainted since the frontend last took them.
     damage: Vec<crate::damage::Rect>,
+    /// Element ids already handed to the JS host (see `seed_js`).
+    seeded: std::collections::HashSet<String>,
 }
 
 impl Page {
@@ -101,6 +103,7 @@ impl Page {
             layout: None,
             quirks: false,
             damage: Vec::new(),
+            seeded: std::collections::HashSet::new(),
         }
     }
 
@@ -110,6 +113,8 @@ impl Page {
         self.layout = None; // a new page: no partial repaint against the old one
         self.quirks = is_quirks(html);
         let mut doc = html_parser::parse_html(html);
+        self.seeded.clear();
+        self.seed_js(&doc);
         let script_count = js_engine::execute_scripts(&mut doc, self.js.as_mut(), self.now_ms);
         if script_count > 0 {
             log::info!("Executed {} script(s), DOM updated", script_count);
@@ -155,6 +160,7 @@ impl Page {
         if js_engine::tick_timers(doc, self.js.as_mut(), now_ms) == 0 {
             return false;
         }
+        self.seed_new();
         self.render();
         true
     }
@@ -196,6 +202,7 @@ impl Page {
             self.js.set_input_value(&id, &value);
         }
         js_engine::execute_onclick(doc, self.js.as_mut(), &hit.onclick, self.now_ms);
+        self.seed_new();
         self.render();
         true
     }
@@ -322,6 +329,35 @@ impl Page {
 
     /// Repaints from the current DOM (after images arrived, for instance).
     pub fn rerender(&mut self) { self.render(); }
+
+    /// Hands the JS host the elements with an id it has not seen yet (new ones
+    /// come from innerHTML), with their text and attributes.
+    fn seed_js(&mut self, doc: &dom::Document) {
+        fn walk(n: &dom::Node, seeded: &mut std::collections::HashSet<String>, out: &mut Vec<serde_json::Value>) {
+            if let dom::NodeType::Element(d) = &n.node_type {
+                if let Some(id) = d.id() {
+                    if seeded.insert(id.to_string()) {
+                        out.push(serde_json::json!({ "id": id, "text": n.inner_text(), "attrs": d.attributes }));
+                    }
+                }
+            }
+            for c in &n.children {
+                walk(c, seeded, out);
+            }
+        }
+        let mut out = Vec::new();
+        walk(&doc.root, &mut self.seeded, &mut out);
+        if !out.is_empty() {
+            self.js.seed(&serde_json::Value::Array(out).to_string());
+        }
+    }
+
+    fn seed_new(&mut self) {
+        if let Some(doc) = self.document.take() {
+            self.seed_js(&doc);
+            self.document = Some(doc);
+        }
+    }
 
     fn set_focus(&mut self, id: Option<String>) -> bool {
         if self.focused_input == id {
