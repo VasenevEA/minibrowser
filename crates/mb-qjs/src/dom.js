@@ -204,6 +204,24 @@ function __mb_next(now) {
   return best;
 }
 
+// fetch() for the page's own files (the engine decides which may be read).
+// Resolves on the same turn; there is no network.
+function fetch(url) {
+  return new Promise(function (resolve, reject) {
+    var body = typeof __mb_read === 'function' ? __mb_read(String(url)) : null;
+    if (body === null || body === undefined) {
+      reject(new TypeError('fetch failed: ' + url));
+      return;
+    }
+    resolve({
+      ok: true, status: 200, url: String(url),
+      text: function () { return Promise.resolve(body); },
+      json: function () { return new Promise(function (ok) { ok(JSON.parse(body)); }); }
+    });
+  });
+}
+window.fetch = fetch;
+
 function __mb_take() {
   var out = JSON.stringify(__mb_cmds);
   __mb_cmds = [];

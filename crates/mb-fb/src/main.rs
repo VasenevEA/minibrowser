@@ -211,7 +211,9 @@ fn main() {
 
     let clock = Instant::now();
     let now_ms = move || clock.elapsed().as_secs_f64() * 1000.0;
-    let mut page = Page::new(Box::new(QuickJs::new()), w, h);
+    // fetch() reads files next to the page and in /tmp.
+    let dir = std::path::Path::new(&path).parent().map(|p| p.to_path_buf()).unwrap_or_else(|| ".".into());
+    let mut page = Page::new(Box::new(QuickJs::with_files(&dir)), w, h);
     page.set_layout_engine(mb_core::LayoutEngine::from_env());
     let mut loaded = None;
     loop {

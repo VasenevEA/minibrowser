@@ -44,7 +44,8 @@ fn main() {
     }
 
     let html = std::fs::read_to_string(&args[0]).expect("read page");
-    let mut page = Page::new(Box::new(QuickJs::new()), w, h);
+    let dir = std::path::Path::new(&args[0]).parent().map(|p| p.to_path_buf()).unwrap_or_else(|| ".".into());
+    let mut page = Page::new(Box::new(QuickJs::with_files(&dir)), w, h);
     page.set_layout_engine(mb_core::LayoutEngine::from_env());
     let t = Instant::now();
     page.load(&html);

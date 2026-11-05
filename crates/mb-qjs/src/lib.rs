@@ -4,20 +4,33 @@
 //! at global scope, so `var`s and functions persist between scripts, handlers and
 //! timer callbacks, as in a browser.
 
+use std::path::{Path, PathBuf};
+
 use mb_core::JsHost;
-use rquickjs::{CatchResultExt, Context, Runtime};
+use rquickjs::{CatchResultExt, Context, Function, Runtime};
 
 const DOM_JS: &str = include_str!("dom.js");
 
 pub struct QuickJs {
     rt: Runtime,
     ctx: Context,
+    /// Where `fetch` finds relative URLs (the page's directory); None: no files.
+    base: Option<PathBuf>,
 }
 
 impl QuickJs {
     pub fn new() -> Self {
-        let (rt, ctx) = fresh();
-        QuickJs { rt, ctx }
+        let (rt, ctx) = fresh(None);
+        QuickJs { rt, ctx, base: None }
+    }
+
+    /// A host whose `fetch` reads files: relative URLs from `base` (the page's
+    /// directory), absolute paths under `base` or `/tmp` (where the panel's data
+    /// collector drops JSON).
+    pub fn with_files(base: &Path) -> Self {
+        let base = Some(base.to_path_buf());
+        let (rt, ctx) = fresh(base.clone());
+        QuickJs { rt, ctx, base }
     }
 
     /// Evaluates `code` and returns the commands it queued. If it threw, the commands
@@ -29,8 +42,16 @@ impl QuickJs {
             if let Err(e) = ctx.eval::<(), _>(code).catch(&ctx) {
                 log::warn!("JS error: {}", e);
             }
-            ctx.eval::<String, _>("__mb_take()").catch(&ctx).map_err(|e| e.to_string())
-        })
+        });
+        // Promise reactions (fetch().then) run before the commands are collected.
+        for _ in 0..1000 {
+            match self.rt.execute_pending_job() {
+                Ok(true) => {}
+                Ok(false) => break,
+                Err(e) => log::warn!("JS job error: {:?}", e),
+            }
+        }
+        self.ctx.with(|ctx| ctx.eval::<String, _>("__mb_take()").catch(&ctx).map_err(|e| e.to_string()))
     }
 }
 
@@ -38,13 +59,33 @@ impl Default for QuickJs {
     fn default() -> Self { Self::new() }
 }
 
-fn fresh() -> (Runtime, Context) {
+/// The file a `fetch` URL names, if it may be read: relative to `base`, or an
+/// absolute path inside `base` or /tmp, without `..` escaping either.
+fn resolve(base: &Path, url: &str) -> Option<PathBuf> {
+    let url = url.strip_prefix("file://").unwrap_or(url);
+    if url.contains("://") {
+        return None;
+    }
+    let path = if url.starts_with('/') { PathBuf::from(url) } else { base.join(url) };
+    let real = path.canonicalize().ok()?;
+    let allowed = [base.canonicalize().ok(), Path::new("/tmp").canonicalize().ok()];
+    allowed.iter().flatten().any(|root| real.starts_with(root)).then_some(real)
+}
+
+fn fresh(base: Option<PathBuf>) -> (Runtime, Context) {
     let rt = Runtime::new().expect("QuickJS runtime");
     // A page must not take the panel down with it.
     rt.set_memory_limit(32 << 20);
     rt.set_max_stack_size(512 << 10);
     let ctx = Context::full(&rt).expect("QuickJS context");
     ctx.with(|ctx| {
+        let read = Function::new(ctx.clone(), move |url: String| -> Option<String> {
+            let path = resolve(base.as_deref()?, &url)?;
+            std::fs::read_to_string(path).ok()
+        });
+        if let Ok(read) = read {
+            let _ = ctx.globals().set("__mb_read", read);
+        }
         ctx.eval::<(), _>(DOM_JS).catch(&ctx).map_err(|e| e.to_string()).expect("dom.js");
     });
     (rt, ctx)
@@ -52,7 +93,7 @@ fn fresh() -> (Runtime, Context) {
 
 impl JsHost for QuickJs {
     fn reset(&mut self) {
-        let (rt, ctx) = fresh();
+        let (rt, ctx) = fresh(self.base.clone());
         // Drop the old context before its runtime.
         self.ctx = ctx;
         self.rt = rt;
@@ -207,6 +248,24 @@ mod tests {
         assert_eq!(text_of(&page, "out"), "42 true card alarm");
         let v = page.document().unwrap().root.get_element_by_id("v").unwrap();
         assert_eq!(v.element_data().unwrap().attributes.get("class").map(String::as_str), Some("card alarm"));
+    }
+
+    #[test]
+    fn fetch_reads_page_files_only() {
+        let dir = std::env::temp_dir().join(format!("mbqjs-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("data.json"), r#"{"t": 21.5}"#).unwrap();
+        let mut js = QuickJs::with_files(&dir);
+        let out = js.run(r#"
+            fetch('data.json').then(function (r) { return r.json(); }).then(function (d) {
+                document.getElementById('a').textContent = 't=' + d.t;
+            });
+            fetch('../../etc/passwd').then(function () { document.getElementById('b').textContent = 'leak'; },
+                                           function () { document.getElementById('b').textContent = 'refused'; });
+        "#, 0.0).unwrap();
+        assert!(out.contains("t=21.5"), "{out}");
+        assert!(out.contains("refused") && !out.contains("leak"), "{out}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
