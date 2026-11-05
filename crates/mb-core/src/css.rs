@@ -566,7 +566,7 @@ pub fn resolve_styles(doc: &Document) -> StyledTree {
     // Extract and parse <style> blocks
     let rules = resolve_stylesheet_styles(doc);
     let parent_styles = StyleMap::new();
-    let root = style_node(&doc.root, &parent_styles, &rules);
+    let root = style_node(&doc.root, &parent_styles, &rules, &[]);
     StyledTree { root }
 }
 
@@ -651,7 +651,7 @@ fn resolve_em(styles: &mut StyleMap, parent_styles: &StyleMap) {
 }
 
 /// Recursively style a single node.
-fn style_node(node: &Node, parent_styles: &StyleMap, rules: &[CSSRule]) -> StyledNode {
+fn style_node(node: &Node, parent_styles: &StyleMap, rules: &[CSSRule], ancestors: &[&ElementData]) -> StyledNode {
     let mut styles = StyleMap::new();
 
     match &node.node_type {
@@ -685,7 +685,7 @@ fn style_node(node: &Node, parent_styles: &StyleMap, rules: &[CSSRule]) -> Style
 
             // 2.5. Apply matching stylesheet rules (sorted by specificity).
             let mut matching_rules: Vec<&CSSRule> = rules.iter()
-                .filter(|rule| selector_matches(&rule.selector, data))
+                .filter(|rule| selector_matches_in(&rule.selector, data, ancestors))
                 .collect();
             matching_rules.sort_by_key(|rule| specificity(&rule.selector));
             for rule in matching_rules {
@@ -727,10 +727,15 @@ fn style_node(node: &Node, parent_styles: &StyleMap, rules: &[CSSRule]) -> Style
         NodeType::Document => {}
     }
 
+    // Children see this element as their nearest ancestor.
+    let mut chain: Vec<&ElementData> = ancestors.to_vec();
+    if let NodeType::Element(data) = &node.node_type {
+        chain.push(data);
+    }
     let children = node
         .children
         .iter()
-        .map(|child| style_node(child, &styles, rules))
+        .map(|child| style_node(child, &styles, rules, &chain))
         .collect();
 
     StyledNode {
@@ -909,6 +914,17 @@ pub struct Selector {
     pub tag: Option<String>,
     pub id: Option<String>,
     pub classes: Vec<String>,
+    /// For `a > b c`: what must hold up the tree from the subject `c`, nearest
+    /// first: `[(Descendant, b), (Child, a)]`.
+    pub ancestors: Vec<(Combinator, Selector)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Combinator {
+    /// `a b`: some ancestor matches.
+    Descendant,
+    /// `a > b`: the parent matches.
+    Child,
 }
 
 impl Selector {
@@ -935,7 +951,33 @@ impl Selector {
         }
         apply_selector_part(&mut tag, &mut id, &mut classes, kind, &current);
 
-        Selector { tag, id, classes }
+        Selector { tag, id, classes, ancestors: Vec::new() }
+    }
+
+    /// Parses a complex selector (`.a > .b c`). None for what this engine cannot
+    /// match (pseudo-classes, attribute selectors, sibling combinators), so the
+    /// rule is skipped rather than applied too widely.
+    fn parse_complex(input: &str) -> Option<Self> {
+        if input.contains([':', '[', '+', '~']) {
+            return None;
+        }
+        let spaced = input.replace('>', " > ");
+        let mut parts: Vec<&str> = spaced.split_whitespace().collect();
+        let subject = parts.pop()?;
+        if subject == ">" {
+            return None;
+        }
+        let mut sel = Selector::parse(subject);
+        let mut comb = Combinator::Descendant;
+        while let Some(p) = parts.pop() {
+            if p == ">" {
+                comb = Combinator::Child;
+                continue;
+            }
+            sel.ancestors.push((comb, Selector::parse(p)));
+            comb = Combinator::Descendant;
+        }
+        Some(sel)
     }
 }
 
@@ -950,6 +992,7 @@ fn apply_selector_part(
         return;
     }
     match kind {
+        't' if value == "*" => {}
         't' => *tag = Some(value.to_lowercase()),
         '#' => *id = Some(value.to_string()),
         '.' => classes.push(value.to_string()),
@@ -1024,13 +1067,13 @@ pub fn parse_stylesheet(css: &str) -> Vec<CSSRule> {
         let declarations_str = &after_open[..brace_close];
         remaining = after_open[brace_close + 1..].trim();
 
-        let selector = Selector::parse(selector_str);
         let declarations = parse_inline_style(declarations_str);
-
-        rules.push(CSSRule {
-            selector,
-            declarations,
-        });
+        // A selector list applies the block to each selector.
+        for one in selector_str.split(',') {
+            if let Some(selector) = Selector::parse_complex(one) {
+                rules.push(CSSRule { selector, declarations: declarations.clone() });
+            }
+        }
     }
 
     rules
@@ -1095,7 +1138,28 @@ pub fn specificity(selector: &Selector) -> (u32, u32, u32) {
     let id_count = if selector.id.is_some() { 1 } else { 0 };
     let class_count = selector.classes.len() as u32;
     let tag_count = if selector.tag.is_some() { 1 } else { 0 };
-    (id_count, class_count, tag_count)
+    selector.ancestors.iter().fold((id_count, class_count, tag_count), |(a, b, c), (_, s)| {
+        let (x, y, z) = specificity(s);
+        (a + x, b + y, c + z)
+    })
+}
+
+/// Whether `selector` matches `node`, whose ancestors are `ancestors` (root
+/// first, parent last).
+pub fn selector_matches_in(selector: &Selector, node: &ElementData, ancestors: &[&ElementData]) -> bool {
+    fn up(chain: &[(Combinator, Selector)], ancestors: &[&ElementData]) -> bool {
+        let Some(((comb, sel), rest)) = chain.split_first() else { return true };
+        match comb {
+            Combinator::Child => match ancestors.split_last() {
+                Some((parent, above)) => selector_matches(sel, parent) && up(rest, above),
+                None => false,
+            },
+            Combinator::Descendant => (0..ancestors.len()).rev().any(|i| {
+                selector_matches(sel, ancestors[i]) && up(rest, &ancestors[..i])
+            }),
+        }
+    }
+    selector_matches(selector, node) && up(&selector.ancestors, ancestors)
 }
 
 /// Extract `<style>` blocks from the document, parse them, and return the
@@ -1201,6 +1265,24 @@ mod tests {
             styles.get("text-align"),
             Some(&CSSValue::Keyword("center".into()))
         );
+    }
+
+    #[test]
+    fn descendant_and_child_combinators() {
+        let html = r#"<div class="card red"><p><span class="v">a</span></p></div><span class="v">b</span>"#;
+        let doc = crate::html_parser::parse_html(&format!(
+            "<html><head><style>.v {{ color: #00ff00 }} .red .v {{ color: #ff0000 }} div > .v {{ color: #0000ff }}</style></head><body>{html}</body></html>"
+        ));
+        let tree = resolve_styles(&doc);
+        fn find<'a>(n: &'a StyledNode, text: &str) -> Option<&'a StyledNode> {
+            if n.children.iter().any(|c| matches!(&c.node_type, NodeType::Text(t) if t == text)) {
+                return Some(n);
+            }
+            n.children.iter().find_map(|c| find(c, text))
+        }
+        // `.red .v` (0,2,0) beats `.v`; `div > .v` does not apply (span's parent is p).
+        assert_eq!(find(&tree.root, "a").unwrap().get("color"), Some(&CSSValue::Color(255, 0, 0, 255)));
+        assert_eq!(find(&tree.root, "b").unwrap().get("color"), Some(&CSSValue::Color(0, 255, 0, 255)));
     }
 
     #[test]
@@ -1430,7 +1512,7 @@ mod tests {
 
     #[test]
     fn test_selector_matches_tag() {
-        let sel = Selector { tag: Some("div".into()), id: None, classes: vec![] };
+        let sel = Selector { tag: Some("div".into()), id: None, classes: vec![], ancestors: vec![] };
         let el = ElementData::new("div".into(), HashMap::new());
         assert!(selector_matches(&sel, &el));
 
@@ -1440,7 +1522,7 @@ mod tests {
 
     #[test]
     fn test_selector_matches_class() {
-        let sel = Selector { tag: None, id: None, classes: vec!["highlight".into()] };
+        let sel = Selector { tag: None, id: None, classes: vec!["highlight".into()], ancestors: vec![] };
         let el = ElementData::new(
             "div".into(),
             HashMap::from([("class".into(), "highlight extra".into())]),
@@ -1453,7 +1535,7 @@ mod tests {
 
     #[test]
     fn test_selector_matches_id() {
-        let sel = Selector { tag: None, id: Some("main".into()), classes: vec![] };
+        let sel = Selector { tag: None, id: Some("main".into()), classes: vec![], ancestors: vec![] };
         let el = ElementData::new(
             "div".into(),
             HashMap::from([("id".into(), "main".into())]),
@@ -1473,6 +1555,7 @@ mod tests {
             tag: Some("div".into()),
             id: None,
             classes: vec!["container".into()],
+            ancestors: vec![],
         };
         let el = ElementData::new(
             "div".into(),
@@ -1495,26 +1578,26 @@ mod tests {
     #[test]
     fn test_selector_matches_universal() {
         // Selector with no tag, no id, no classes matches everything.
-        let sel = Selector { tag: None, id: None, classes: vec![] };
+        let sel = Selector { tag: None, id: None, classes: vec![], ancestors: vec![] };
         let el = ElementData::new("anything".into(), HashMap::new());
         assert!(selector_matches(&sel, &el));
     }
 
     #[test]
     fn test_specificity_tag_only() {
-        let sel = Selector { tag: Some("h1".into()), id: None, classes: vec![] };
+        let sel = Selector { tag: Some("h1".into()), id: None, classes: vec![], ancestors: vec![] };
         assert_eq!(specificity(&sel), (0, 0, 1));
     }
 
     #[test]
     fn test_specificity_class_only() {
-        let sel = Selector { tag: None, id: None, classes: vec!["btn".into()] };
+        let sel = Selector { tag: None, id: None, classes: vec!["btn".into()], ancestors: vec![] };
         assert_eq!(specificity(&sel), (0, 1, 0));
     }
 
     #[test]
     fn test_specificity_id_only() {
-        let sel = Selector { tag: None, id: Some("main".into()), classes: vec![] };
+        let sel = Selector { tag: None, id: Some("main".into()), classes: vec![], ancestors: vec![] };
         assert_eq!(specificity(&sel), (1, 0, 0));
     }
 
@@ -1524,15 +1607,16 @@ mod tests {
             tag: Some("div".into()),
             id: Some("main".into()),
             classes: vec!["container".into(), "wide".into()],
+            ancestors: vec![],
         };
         assert_eq!(specificity(&sel), (1, 2, 1));
     }
 
     #[test]
     fn test_specificity_ordering() {
-        let id_sel = Selector { tag: None, id: Some("x".into()), classes: vec![] };
-        let class_sel = Selector { tag: None, id: None, classes: vec!["x".into()] };
-        let tag_sel = Selector { tag: Some("x".into()), id: None, classes: vec![] };
+        let id_sel = Selector { tag: None, id: Some("x".into()), classes: vec![], ancestors: vec![] };
+        let class_sel = Selector { tag: None, id: None, classes: vec!["x".into()], ancestors: vec![] };
+        let tag_sel = Selector { tag: Some("x".into()), id: None, classes: vec![], ancestors: vec![] };
 
         // ID > class > tag when compared as tuples.
         assert!(specificity(&id_sel) > specificity(&class_sel));
