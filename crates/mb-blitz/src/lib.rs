@@ -7,6 +7,7 @@
 //! around the commands that changed is painted again.
 
 pub mod dom;
+pub mod net;
 pub mod scene;
 
 use std::cell::{Cell, RefCell};
@@ -67,6 +68,8 @@ pub struct BlitzPage {
     dirty: bool,
     /// MB_TRACE=1: log each frame's timings.
     trace: bool,
+    /// Where the page's files are (images, stylesheets): its directory.
+    base: Option<std::path::PathBuf>,
 }
 
 impl BlitzPage {
@@ -90,7 +93,14 @@ impl BlitzPage {
             damage: Vec::new(),
             dirty: true,
             trace: std::env::var_os("MB_TRACE").is_some(),
+            base: None,
         }
+    }
+
+    /// Images, stylesheets and other files the page names load from `dir`.
+    pub fn with_base(mut self, dir: &std::path::Path) -> Self {
+        self.base = dir.canonicalize().ok();
+        self
     }
 
     fn config(width: u32, height: u32) -> DocumentConfig {
@@ -101,9 +111,18 @@ impl BlitzPage {
         }
     }
 
+    fn page_config(&self) -> DocumentConfig {
+        let mut c = Self::config(self.width, self.height);
+        if let Some(base) = &self.base {
+            c.base_url = Some(format!("file://{}/", base.display()));
+            c.net_provider = Some(Arc::new(net::Files::new(base.clone())));
+        }
+        c
+    }
+
     pub fn load(&mut self, html: &str) {
         // The new document first: a live DOM host reads it as it resets.
-        *self.doc.borrow_mut() = HtmlDocument::from_html(html, Self::config(self.width, self.height));
+        *self.doc.borrow_mut() = HtmlDocument::from_html(html, self.page_config());
         self.js.reset();
         self.last.clear();
         if !self.live {

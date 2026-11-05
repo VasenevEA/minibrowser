@@ -24,7 +24,7 @@ fn main() {
     let (w, h) = (800, 480);
     let html = std::fs::read_to_string(&args[0]).unwrap();
     let dir = std::path::Path::new(&args[0]).parent().map(|p| p.to_path_buf()).unwrap_or_else(|| ".".into());
-    let mut page = BlitzPage::new(Box::new(QuickJs::with_files(&dir)), w, h);
+    let mut page = BlitzPage::new(Box::new(QuickJs::with_files(&dir)), w, h).with_base(&dir);
     let t = Instant::now();
     page.load(&html);
     eprintln!("load {:.1} ms, {} nodes", t.elapsed().as_secs_f64() * 1e3, page.node_count());

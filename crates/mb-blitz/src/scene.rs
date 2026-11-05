@@ -208,7 +208,11 @@ impl TinySkiaScene {
         brush_transform: Option<Affine>,
         transform: Affine,
     ) -> Option<(sk::Shader<'a>, &'a mut sk::Pixmap, Option<&'a sk::Mask>)> {
-        let bt = self.to_region(transform * brush_transform.unwrap_or(Affine::IDENTITY));
+        // Shaders live in the shape's user space: tiny-skia applies the
+        // shape's transform to them as well, so only the brush's own here.
+        let _ = transform;
+        let [a, b, c, d, e, f] = brush_transform.unwrap_or(Affine::IDENTITY).as_coeffs();
+        let bt = sk::Transform::from_row(a as f32, b as f32, c as f32, d as f32, e as f32, f as f32);
         let shader = shader(&mut self.images, paint, bt)?;
         let mask = self.layers.last().and_then(|l| l.mask.as_ref());
         let pixmap = self.surfaces.last_mut().unwrap_or(&mut self.pixmap);
