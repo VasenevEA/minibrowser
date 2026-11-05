@@ -135,6 +135,7 @@ fn touch_thread(path: String, (w, h): (u32, u32), tx: mpsc::Sender<(f32, f32)>, 
     let fd = f.as_raw_fd();
     let (ax, ay) = (abs_info(fd, 0), abs_info(fd, 1));
     let flags = std::env::var("MB_TOUCH").unwrap_or_default();
+    let cal: Vec<f32> = std::env::var("MB_TOUCH_CAL").unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();
     eprintln!("touch: x {}..{} y {}..{} flags '{flags}'", ax.min, ax.max, ay.min, ay.max);
     // The kernel drops ABS events that repeat the last value, so start from it.
     let (mut x, mut y, mut down) = (ax.value, ay.value, false);
@@ -159,6 +160,18 @@ fn touch_thread(path: String, (w, h): (u32, u32), tx: mpsc::Sender<(f32, f32)>, 
         }
         down = false;
         last = Instant::now();
+        // MB_TOUCH_CAL="a,b,c,d,e,f": screen x = a*rx + b*ry + c, y = d*rx + e*ry + f.
+        if let [a, b, c, d, e, f] = cal[..] {
+            let (rx, ry) = (x as f32, y as f32);
+            let p = ((a * rx + b * ry + c).clamp(0.0, w as f32 - 1.0), (d * rx + e * ry + f).clamp(0.0, h as f32 - 1.0));
+            if probe {
+                eprintln!("tap raw {x},{y} -> {:.0},{:.0}", p.0, p.1);
+            }
+            if tx.send(p).is_err() {
+                return;
+            }
+            continue;
+        }
         let span = |a: &AbsInfo| (a.max - a.min).max(1) as f32;
         let mut fx = (x - ax.min) as f32 / span(&ax);
         let mut fy = (y - ay.min) as f32 / span(&ay);

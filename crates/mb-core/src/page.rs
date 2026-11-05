@@ -392,6 +392,7 @@ impl Page {
         let layout_input = convert_styled(&styled.root, &mut cx);
         let used = std::mem::take(&mut cx.svg_used);
         self.svg.retain_used(&used);
+        phases.mark("convert+svg");
         // Lay out against the full content height, not the viewport.
         let layout_root = match self.engine {
             LayoutEngine::Builtin => layout::layout_tree(&layout_input, self.width as f32, 100000.0),
