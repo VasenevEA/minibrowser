@@ -108,6 +108,21 @@ impl Net {
     }
 }
 
+/// GET `url` now (on this thread): for module imports, which load synchronously.
+pub fn get_text(url: &str) -> Option<String> {
+    match http("GET", url, None, &[]) {
+        Ok((200..=299, body)) => Some(String::from_utf8_lossy(&body).into_owned()),
+        Ok((status, _)) => {
+            log::warn!("module {url}: HTTP {status}");
+            None
+        }
+        Err(e) => {
+            log::warn!("module {url}: {e}");
+            None
+        }
+    }
+}
+
 fn http(method: &str, url: &str, body: Option<String>, headers: &[(String, String)]) -> Result<(u16, Vec<u8>), String> {
     use std::io::Read;
     use std::sync::OnceLock;

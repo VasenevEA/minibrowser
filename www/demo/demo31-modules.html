@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  body { margin: 0; padding: 16px; background: #0f172a; color: #e2e8f0; font: 15px sans-serif; }
+  h1 { margin: 0 0 12px; font-size: 19px; color: #a5b4fc; }
+  #meters { display: flex; gap: 12px; }
+  .meter { flex: 1; background: #1e293b; border-radius: 10px; padding: 12px; border: 2px solid #1e293b; }
+  .meter.hi { border-color: #f97316; }
+  .t { color: #94a3b8; font-size: 13px; }
+  .v { font-size: 30px; font-weight: bold; margin: 6px 0; }
+  .bar { height: 8px; background: #334155; border-radius: 4px; }
+  .bar i { display: block; height: 8px; width: 0; background: #818cf8; border-radius: 4px; }
+  #info { margin-top: 14px; color: #64748b; font-size: 13px; }
+</style>
+<script type="module" src="modules/main-demo31.js"></script>
+</head>
+<body>
+<h1>ES-модули: import / export</h1>
+<div id="meters"></div>
+<div id="info"></div>
+<script type="module">
+  import { unit } from './modules/format.js';
+  document.getElementById('info').textContent += ' Встроенный модуль видит единицы: ' + Object.values(unit).join(', ') + '.';
+</script>
+</body></html>

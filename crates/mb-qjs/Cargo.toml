@@ -9,7 +9,7 @@ license = "MIT"
 serde_json = "1"
 mb-core = { path = "../mb-core" }
 log = "0.4"
-rquickjs = "0.9"
+rquickjs = { version = "0.9", features = ["loader"] }
 ureq = { version = "3.5", optional = true, default-features = false, features = ["rustls", "gzip"] }
 tungstenite = { version = "0.30", optional = true, default-features = false, features = ["handshake"] }
 

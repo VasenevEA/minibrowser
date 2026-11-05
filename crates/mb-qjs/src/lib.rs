@@ -95,6 +95,89 @@ fn resolve(base: &Path, url: &str) -> Option<PathBuf> {
     allowed.iter().flatten().any(|root| real.starts_with(root)).then_some(real)
 }
 
+/// Where `import` finds modules: a module name is a path relative to the
+/// page's directory (`lib/a.js`) or an http(s) URL.
+struct Modules {
+    base: Option<PathBuf>,
+}
+
+/// `name` imported from module `from`: the importing module's directory joined
+/// with it, `..` folded; URLs as URLs.
+fn join_module(from: &str, name: &str) -> String {
+    if name.contains("://") {
+        return name.to_string();
+    }
+    if let Some(i) = from.find("://") {
+        // Against a URL: the origin for "/x", the directory otherwise.
+        let rest = &from[i + 3..];
+        let origin_end = i + 3 + rest.find('/').unwrap_or(rest.len());
+        let origin = &from[..origin_end];
+        if name.starts_with('/') {
+            return format!("{origin}{name}");
+        }
+        let dir = &from[..from.rfind('/').filter(|&j| j >= origin_end).map_or(from.len(), |j| j + 1)];
+        let dir = if dir.ends_with('/') { dir.to_string() } else { format!("{dir}/") };
+        return fold(&format!("{dir}{name}"));
+    }
+    let dir = Path::new(from).parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+    let joined = if name.starts_with('/') { name.trim_start_matches('/').to_string() } else if dir.is_empty() { name.to_string() } else { format!("{dir}/{name}") };
+    fold(&joined)
+}
+
+/// Removes `.` and folds `..` segments (keeping a URL's scheme and host).
+fn fold(path: &str) -> String {
+    let (head, rest) = match path.find("://") {
+        Some(i) => {
+            let after = &path[i + 3..];
+            let host_end = i + 3 + after.find('/').unwrap_or(after.len());
+            (&path[..host_end], &path[host_end..])
+        }
+        None => ("", path),
+    };
+    let mut parts: Vec<&str> = Vec::new();
+    for seg in rest.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            s => parts.push(s),
+        }
+    }
+    if head.is_empty() { parts.join("/") } else { format!("{head}/{}", parts.join("/")) }
+}
+
+impl rquickjs::loader::Resolver for Modules {
+    fn resolve<'js>(&mut self, _ctx: &rquickjs::Ctx<'js>, base: &str, name: &str) -> rquickjs::Result<String> {
+        if !(name.starts_with("./") || name.starts_with("../") || name.starts_with('/') || name.contains("://")) {
+            return Err(rquickjs::Error::new_resolving_message(base, name, "bare module names need an import map (not supported)"));
+        }
+        Ok(join_module(base, name))
+    }
+}
+
+impl rquickjs::loader::Loader for Modules {
+    fn load<'js>(&mut self, ctx: &rquickjs::Ctx<'js>, name: &str) -> rquickjs::Result<rquickjs::Module<'js, rquickjs::module::Declared>> {
+        let code = if name.contains("://") {
+            fetch_module(name)
+        } else {
+            self.base.as_deref().and_then(|b| resolve(b, name)).and_then(|p| std::fs::read_to_string(p).ok())
+        };
+        let code = code.ok_or_else(|| rquickjs::Error::new_loading(name))?;
+        rquickjs::Module::declare(ctx.clone(), name, code)
+    }
+}
+
+#[cfg(feature = "net")]
+fn fetch_module(url: &str) -> Option<String> {
+    net::get_text(url)
+}
+
+#[cfg(not(feature = "net"))]
+fn fetch_module(_url: &str) -> Option<String> {
+    None
+}
+
 /// Pins down the closure's lifetimes: its value lives in the context it is given.
 fn bytes_fn<F>(f: F) -> F
 where
@@ -117,6 +200,7 @@ fn fresh(base: Option<PathBuf>, blobs: Blobs, dom: Option<SharedDom>, host: &Hos
     // Big enough for a game compiled to JS (Doom: ~40 MB with its heap).
     rt.set_memory_limit(64 << 20);
     rt.set_max_stack_size(512 << 10);
+    rt.set_loader(Modules { base: base.clone() }, Modules { base: base.clone() });
     let ctx = Context::full(&rt).expect("QuickJS context");
     let base_bytes = base.clone();
     ctx.with(|ctx| {
@@ -206,6 +290,31 @@ impl JsHost for QuickJs {
 
     fn run(&mut self, code: &str, now_ms: f64) -> Result<String, String> {
         self.eval_take(code, now_ms)
+    }
+
+    fn run_module(&mut self, code: &str, name: &str, now_ms: f64) -> Result<String, String> {
+        self.blobs.borrow_mut().clear();
+        self.ctx.with(|ctx| {
+            let _ = ctx.globals().set("__mb_now", now_ms);
+            match rquickjs::Module::evaluate(ctx.clone(), name, code).catch(&ctx) {
+                Ok(promise) => {
+                    // A module's top-level throw rejects its promise.
+                    let _ = ctx.globals().set("__mb_module_done", promise);
+                    let _ = ctx.eval::<(), _>(
+                        "__mb_module_done.catch(function (e) { console.error('module: ' + e + (e && e.stack ? '\\n' + e.stack : '')); });",
+                    );
+                }
+                Err(e) => log::warn!("JS module {name}: {e}"),
+            }
+        });
+        for _ in 0..1000 {
+            match self.rt.execute_pending_job() {
+                Ok(true) => {}
+                Ok(false) => break,
+                Err(e) => log::warn!("JS job error: {:?}", e),
+            }
+        }
+        self.ctx.with(|ctx| ctx.eval::<String, _>("__mb_take()").catch(&ctx).map_err(|e| e.to_string()))
     }
 
     fn tick(&mut self, now_ms: f64) -> Result<String, String> {

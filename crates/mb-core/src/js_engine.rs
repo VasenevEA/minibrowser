@@ -35,25 +35,61 @@ pub enum DomCommand {
 // Script extraction
 // ---------------------------------------------------------------------------
 
-/// Walk the DOM tree and collect the text content of every `<script>` element.
-pub fn extract_scripts(doc: &Document) -> Vec<String> {
+/// A page script to run.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Script {
+    /// A classic script: its code (an external one as `__mb_include(src)`).
+    Classic(String),
+    /// An ES module (`type="module"`): its code (an external one as
+    /// `import "src"`), run with imports resolved against the page.
+    Module(String),
+}
+
+/// The scripts of `doc`, in document order. Scripts of other types (JSON
+/// data, templates) are not code and are left out.
+pub fn page_scripts(doc: &Document) -> Vec<Script> {
     let mut scripts = Vec::new();
     collect_scripts(&doc.root, &mut scripts);
     scripts
 }
 
-fn collect_scripts(node: &Node, out: &mut Vec<String>) {
+/// The classic scripts' code (modules left out; see `page_scripts`).
+pub fn extract_scripts(doc: &Document) -> Vec<String> {
+    page_scripts(doc).into_iter().filter_map(|s| match s {
+        Script::Classic(code) => Some(code),
+        Script::Module(_) => None,
+    }).collect()
+}
+
+fn collect_scripts(node: &Node, out: &mut Vec<Script>) {
     if let NodeType::Element(ref data) = node.node_type {
         if data.tag_name == "script" {
-            // An external script: the host loads and runs the file.
-            if let Some(src) = data.attributes.get("src").filter(|s| !s.trim().is_empty()) {
-                out.push(format!("__mb_include({})", serde_json::Value::String(src.trim().to_string())));
+            let ty = data.attributes.get("type").map(|t| t.trim().to_ascii_lowercase()).unwrap_or_default();
+            let module = ty == "module";
+            if !module && !matches!(ty.as_str(), "" | "text/javascript" | "application/javascript" | "text/ecmascript") {
                 return;
             }
-            let text = node.inner_text();
-            let trimmed = text.trim();
-            if !trimmed.is_empty() {
-                out.push(trimmed.to_string());
+            let src = data.attributes.get("src").map(|s| s.trim()).filter(|s| !s.is_empty());
+            let lit = |s: &str| serde_json::Value::String(s.to_string()).to_string();
+            match (src, module) {
+                // An external script: the host loads and runs the file.
+                (Some(src), false) => out.push(Script::Classic(format!("__mb_include({})", lit(src)))),
+                (Some(src), true) => {
+                    // Bare names are not resolvable; a page writes them as paths.
+                    let path = if src.starts_with("./") || src.starts_with("../") || src.starts_with('/') || src.contains("://") {
+                        src.to_string()
+                    } else {
+                        format!("./{src}")
+                    };
+                    out.push(Script::Module(format!("import {};", lit(&path))));
+                }
+                (None, _) => {
+                    let text = node.inner_text();
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty() {
+                        out.push(if module { Script::Module(trimmed.to_string()) } else { Script::Classic(trimmed.to_string()) });
+                    }
+                }
             }
         }
     }
@@ -98,6 +134,12 @@ pub trait JsHost {
     /// (`[{id, text, attrs}]` as JSON), so reads like `textContent` and
     /// `classList.contains` see the document. Hosts that cannot use it ignore it.
     fn seed(&mut self, _elements_json: &str) {}
+
+    /// Runs `code` as an ES module named `name` (imports resolve against it).
+    /// Hosts without modules run it as a classic script.
+    fn run_module(&mut self, code: &str, _name: &str, now_ms: f64) -> Result<String, String> {
+        self.run(code, now_ms)
+    }
 
     /// Scripts work on this live document from now on (and after `reset`).
     /// Returns false if the host cannot (it keeps its by-id elements).

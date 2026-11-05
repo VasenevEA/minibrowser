@@ -154,11 +154,17 @@ impl Page {
         self.seeded.clear();
         self.canvases.clear();
         if self.live.is_some() {
-            let scripts = js_engine::extract_scripts(&doc);
+            let scripts = js_engine::page_scripts(&doc);
             js_engine::remove_script_elements(&mut doc.root);
             self.document = Some(doc);
-            for code in scripts {
-                self.run_js(&code);
+            for (i, script) in scripts.into_iter().enumerate() {
+                match script {
+                    js_engine::Script::Classic(code) => self.run_js(&code),
+                    js_engine::Script::Module(code) => {
+                        let name = format!("./page-module-{i}.js");
+                        self.run_js_with(move |js, now| js.run_module(&code, &name, now))
+                    }
+                };
             }
             self.run_js("__mb_loaded()");
         } else {
