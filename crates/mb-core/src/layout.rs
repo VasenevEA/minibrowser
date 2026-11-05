@@ -623,10 +623,17 @@ impl LayoutBox {
             }
         }
 
-        // For position: relative, offset from normal flow position
-        if self.position == Position::Relative {
-            self.x += self.offset_left;
-            self.y += self.offset_top;
+        // For position: relative, offset from normal flow position, content and all
+        if self.position == Position::Relative && (self.offset_left != 0.0 || self.offset_top != 0.0) {
+            fn shift(node: &mut LayoutBox, dx: f32, dy: f32) {
+                node.x += dx;
+                node.y += dy;
+                for c in &mut node.children {
+                    shift(c, dx, dy);
+                }
+            }
+            let (dx, dy) = (self.offset_left, self.offset_top);
+            shift(self, dx, dy);
         }
     }
 
