@@ -844,6 +844,9 @@ fn convert_styled(sn: &css::StyledNode, cx: &mut Cx) -> layout::StyledNode {
             _ => false,
         },
         border_box: is_border_box,
+        min_width: get_dim("min-width"),
+        max_width: get_dim("max-width"),
+        max_height: get_dim("max-height"),
         grid: layout::GridProps {
             columns: get_str("grid-template-columns"),
             rows: get_str("grid-template-rows"),

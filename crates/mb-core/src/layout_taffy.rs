@@ -139,10 +139,12 @@ fn measure_leaf(template: &LayoutBox, known: Size<Option<f32>>, avail: Size<Avai
     let width = match known.width {
         Some(w) => w,
         None => {
-            let (max_content, _) = run(1.0e6);
+            // Whole pixels: Taffy rounds the box, and a box 0.3px short of its
+            // content would wrap the last word.
+            let max_content = run(1.0e6).0.ceil();
             match avail.width {
                 AvailableSpace::Definite(w) => max_content.min(w),
-                AvailableSpace::MinContent => run(0.0).0,
+                AvailableSpace::MinContent => run(0.0).0.ceil(),
                 AvailableSpace::MaxContent => max_content,
             }
         }
@@ -291,7 +293,8 @@ fn style_of(n: &StyledNode, root: bool) -> Style {
         position,
         inset,
         size: Size { width: if root { percent(1.0) } else { dim(width) }, height: dim(height) },
-        min_size: Size { width: auto(), height: lpa(n.min_height) },
+        min_size: Size { width: lpa(n.min_width), height: lpa(n.min_height) },
+        max_size: Size { width: lpa(n.max_width), height: lpa(n.max_height) },
         margin: taffy::Rect { left: margin_left, right: margin_right, top: length(n.margin.top), bottom: length(n.margin.bottom) },
         padding: taffy::Rect { left: e(n.padding.left), right: e(n.padding.right), top: e(n.padding.top), bottom: e(n.padding.bottom) },
         border: taffy::Rect { left: e(n.border.left), right: e(n.border.right), top: e(n.border.top), bottom: e(n.border.bottom) },

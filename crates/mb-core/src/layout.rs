@@ -197,6 +197,10 @@ pub struct StyledNode {
     pub flex: FlexProps,
     /// Grid properties as written in CSS (used by the Taffy layout only).
     pub grid: GridProps,
+    /// `min-width`, `max-width`, `max-height` (used by the Taffy layout only).
+    pub min_width: Dimension,
+    pub max_width: Dimension,
+    pub max_height: Dimension,
     pub content: NodeContent,
     pub children: Vec<StyledNode>,
 }
@@ -368,6 +372,9 @@ impl StyledNode {
             border_box: false,
             flex: FlexProps::default(),
             grid: GridProps::default(),
+            min_width: Dimension::Auto,
+            max_width: Dimension::Auto,
+            max_height: Dimension::Auto,
             content: NodeContent::Text(s.to_string()),
             children: Vec::new(),
         }
@@ -407,6 +414,9 @@ impl StyledNode {
             border_box: false,
             flex: FlexProps::default(),
             grid: GridProps::default(),
+            min_width: Dimension::Auto,
+            max_width: Dimension::Auto,
+            max_height: Dimension::Auto,
             content: NodeContent::Element,
             children,
         }
