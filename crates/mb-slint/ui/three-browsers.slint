@@ -1,0 +1,82 @@
+// Three small browsers in a scrolling list: each card shows a live page
+// (laid out at 800x480, shown scaled down) next to its Slint controls.
+import { HtmlView } from "html-view.slint";
+import { Button } from "std-widgets.slint";
+
+component BrowserCard inherits Rectangle {
+    in property <image> frame;
+    in property <string> title;
+    in property <string> note;
+    in property <int> frames;
+    callback tapped(float, float);
+    callback reload();
+    height: 340px;
+    background: #111a2e;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: #1e2a44;
+    HorizontalLayout {
+        padding: 10px;
+        spacing: 14px;
+        Rectangle {
+            width: 533px;
+            height: 320px;
+            border-radius: 6px;
+            clip: true;
+            HtmlView {
+                width: 100%;
+                height: 100%;
+                frame: root.frame;
+                tapped(x, y) => { root.tapped(x, y); }
+            }
+        }
+        VerticalLayout {
+            spacing: 8px;
+            Text { text: root.title; color: #7dd3fc; font-size: 18px; wrap: word-wrap; }
+            Text { text: root.note; color: #94a3b8; font-size: 13px; wrap: word-wrap; }
+            Text { text: "кадров: " + root.frames; color: #64748b; font-size: 13px; }
+            Rectangle { vertical-stretch: 1; }
+            Button { text: "Перезагрузить"; clicked => { root.reload(); } }
+        }
+    }
+}
+
+export component ThreeBrowsers inherits Window {
+    title: "Три браузера в Slint";
+    preferred-width: 800px;
+    preferred-height: 480px;
+    background: #0b1020;
+    in property <[image]> frames: [];
+    in property <[int]> counts: [0, 0, 0];
+    in property <[string]> titles: ["", "", ""];
+    in property <[string]> notes: ["", "", ""];
+    callback tapped(int, float, float);
+    callback reload(int);
+
+    VerticalLayout {
+        HorizontalLayout {
+            height: 44px;
+            padding-left: 14px;
+            padding-right: 14px;
+            Text { text: "Slint · три браузера"; color: #e2e8f0; font-size: 20px; vertical-alignment: center; }
+            Text { text: "листайте ↕"; color: #64748b; font-size: 14px; vertical-alignment: center; horizontal-alignment: right; horizontal-stretch: 1; }
+        }
+        // A Flickable, not ScrollView: desktop styles' ScrollView only
+        // scrolls by wheel, a panel needs a finger drag.
+        Flickable {
+            interactive: true;
+            VerticalLayout {
+                padding: 10px;
+                spacing: 10px;
+                for i in 3: BrowserCard {
+                    frame: root.frames[i];
+                    title: root.titles[i];
+                    note: root.notes[i];
+                    frames: root.counts[i];
+                    tapped(x, y) => { root.tapped(i, x, y); }
+                    reload() => { root.reload(i); }
+                }
+            }
+        }
+    }
+}

@@ -180,7 +180,32 @@ pub fn pointercal(path: &str, (w, h): (u32, u32)) -> Option<Vec<f32>> {
 }
 
 /// Sends taps in screen coordinates: one per touch, on release, at most every 120 ms.
-pub fn touch_thread(path: String, (w, h): (u32, u32), tx: mpsc::Sender<(f32, f32)>, probe: bool) {
+/// A touch on the screen, in screen pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Touch {
+    Down(f32, f32),
+    Move(f32, f32),
+    Up(f32, f32),
+}
+
+/// Taps (on release) from the touch panel at `path`, sent to `tx`; taps
+/// closer than 120 ms to the last are dropped (resistive panels bounce).
+pub fn touch_thread(path: String, size: (u32, u32), tx: mpsc::Sender<(f32, f32)>, probe: bool) {
+    let mut last = Instant::now() - Duration::from_secs(1);
+    touch_events(path, size, probe, |t| match t {
+        Touch::Up(x, y) if last.elapsed() >= Duration::from_millis(120) => {
+            last = Instant::now();
+            tx.send((x, y)).is_ok()
+        }
+        _ => true,
+    });
+}
+
+/// Every touch event from the panel at `path` (down, moves, up) to `on`,
+/// until it returns false or the device goes away. Calibration: MB_TOUCH_CAL
+/// "a,b,c,d,e,f" (x = a*rx + b*ry + c, y = d*rx + e*ry + f), else tslib's
+/// /etc/pointercal, else the axis ranges with MB_TOUCH "swap", "invx", "invy".
+pub fn touch_events(path: String, (w, h): (u32, u32), probe: bool, mut on: impl FnMut(Touch) -> bool) {
     let mut f = match File::open(&path) {
         Ok(f) => f,
         Err(e) => return eprintln!("touch: {path}: {e}"),
@@ -196,9 +221,24 @@ pub fn touch_thread(path: String, (w, h): (u32, u32), tx: mpsc::Sender<(f32, f32
         }
     }
     eprintln!("touch: x {}..{} y {}..{} flags '{flags}'", ax.min, ax.max, ay.min, ay.max);
+    let map = |x: i32, y: i32| -> (f32, f32) {
+        if let [a, b, c, d, e, f] = cal[..] {
+            let (rx, ry) = (x as f32, y as f32);
+            return ((a * rx + b * ry + c).clamp(0.0, w as f32 - 1.0), (d * rx + e * ry + f).clamp(0.0, h as f32 - 1.0));
+        }
+        let span = |a: &AbsInfo| (a.max - a.min).max(1) as f32;
+        let mut fx = (x - ax.min) as f32 / span(&ax);
+        let mut fy = (y - ay.min) as f32 / span(&ay);
+        if flags.contains("swap") { std::mem::swap(&mut fx, &mut fy) }
+        if flags.contains("invx") { fx = 1.0 - fx }
+        if flags.contains("invy") { fy = 1.0 - fy }
+        (fx.clamp(0.0, 1.0) * w as f32, fy.clamp(0.0, 1.0) * h as f32)
+    };
     // The kernel drops ABS events that repeat the last value, so start from it.
-    let (mut x, mut y, mut down) = (ax.value, ay.value, false);
-    let mut last = Instant::now() - Duration::from_secs(1);
+    let (mut x, mut y) = (ax.value, ay.value);
+    // Touching now (a position or BTN_TOUCH came since the last release), and
+    // whether Down was sent for this touch.
+    let (mut touching, mut sent_down, mut moved) = (false, false, false);
     let mut ev = [0u8; 16];
     while f.read_exact(&mut ev).is_ok() {
         let ty = u16::from_le_bytes([ev[8], ev[9]]);
@@ -207,43 +247,41 @@ pub fn touch_thread(path: String, (w, h): (u32, u32), tx: mpsc::Sender<(f32, f32
         if probe {
             eprintln!("ev type {ty} code {code} value {val}");
         }
-        let up = match (ty, code) {
-            (3, 0) | (3, 0x35) => { x = val; down = true; false }
-            (3, 1) | (3, 0x36) => { y = val; down = true; false }
-            (1, 330) => { if val == 1 { down = true; false } else { down } }
-            (3, 24) => val == 0 && down, // pressure gone
-            _ => false,
-        };
-        if !up || last.elapsed() < Duration::from_millis(120) {
-            continue;
+        let mut release = false;
+        match (ty, code) {
+            (3, 0) | (3, 0x35) => { x = val; touching = true; moved = true }
+            (3, 1) | (3, 0x36) => { y = val; touching = true; moved = true }
+            (1, 330) => if val == 1 { touching = true } else { release = touching }
+            (3, 24) => if val == 0 { release = touching }, // pressure gone
+            _ => {}
         }
-        down = false;
-        last = Instant::now();
-        // MB_TOUCH_CAL="a,b,c,d,e,f": screen x = a*rx + b*ry + c, y = d*rx + e*ry + f.
-        if let [a, b, c, d, e, f] = cal[..] {
-            let (rx, ry) = (x as f32, y as f32);
-            let p = ((a * rx + b * ry + c).clamp(0.0, w as f32 - 1.0), (d * rx + e * ry + f).clamp(0.0, h as f32 - 1.0));
-            if probe {
-                eprintln!("tap raw {x},{y} -> {:.0},{:.0}", p.0, p.1);
-            }
-            if tx.send(p).is_err() {
+        let event = if release {
+            touching = false;
+            let was = sent_down;
+            sent_down = false;
+            moved = false;
+            // A release without a reported position still counts as a tap.
+            if !was && !on(Touch::Down(map(x, y).0, map(x, y).1)) {
                 return;
             }
-            continue;
-        }
-        let span = |a: &AbsInfo| (a.max - a.min).max(1) as f32;
-        let mut fx = (x - ax.min) as f32 / span(&ax);
-        let mut fy = (y - ay.min) as f32 / span(&ay);
-        if flags.contains("swap") { std::mem::swap(&mut fx, &mut fy) }
-        if flags.contains("invx") { fx = 1.0 - fx }
-        if flags.contains("invy") { fy = 1.0 - fy }
-        let p = (fx.clamp(0.0, 1.0) * w as f32, fy.clamp(0.0, 1.0) * h as f32);
-        if probe {
-            eprintln!("tap raw {x},{y} -> {:.0},{:.0}", p.0, p.1);
-        }
-        if tx.send(p).is_err() {
-            return;
+            Some(Touch::Up(map(x, y).0, map(x, y).1))
+        } else if ty == 0 && touching && (moved || !sent_down) {
+            // SYN_REPORT: one coherent position.
+            moved = false;
+            let (px, py) = map(x, y);
+            let e = if sent_down { Touch::Move(px, py) } else { Touch::Down(px, py) };
+            sent_down = true;
+            Some(e)
+        } else {
+            None
+        };
+        if let Some(e) = event {
+            if probe {
+                eprintln!("touch {e:?} (raw {x},{y})");
+            }
+            if !on(e) {
+                return;
+            }
         }
     }
 }
-

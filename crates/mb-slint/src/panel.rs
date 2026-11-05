@@ -10,7 +10,7 @@ use std::rc::Rc;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use mb_fb::Screen;
+use mb_fb::{Screen, Touch};
 use slint::platform::software_renderer::{MinimalSoftwareWindow, PremultipliedRgbaColor, RepaintBufferType};
 use slint::platform::{Platform, PointerEventButton, WindowAdapter, WindowEvent};
 use slint::{LogicalPosition, PhysicalSize, PlatformError};
@@ -18,7 +18,7 @@ use slint::{LogicalPosition, PhysicalSize, PlatformError};
 struct Panel {
     window: Rc<MinimalSoftwareWindow>,
     screen: RefCell<Box<dyn Screen>>,
-    taps: mpsc::Receiver<(f32, f32)>,
+    touches: mpsc::Receiver<Touch>,
     size: (u32, u32),
     started: Instant,
     trace: bool,
@@ -31,13 +31,14 @@ pub fn init(args: &[String]) -> Result<(u32, u32), PlatformError> {
     default_font();
     let screen = mb_fb::open_screen(args);
     let size = screen.size();
-    let (tx, taps) = mpsc::channel();
+    let (tx, touches) = mpsc::channel();
     let input = mb_fb::arg(args, "--input", "/dev/input/event0");
-    std::thread::spawn(move || mb_fb::touch_thread(input, size, tx, false));
+    let probe = args.iter().any(|a| a == "--probe-touch");
+    std::thread::spawn(move || mb_fb::touch_events(input, size, probe, |t| tx.send(t).is_ok()));
     let window = MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer);
     window.set_size(PhysicalSize::new(size.0, size.1));
     let trace = std::env::var_os("MB_TRACE").is_some();
-    slint::platform::set_platform(Box::new(Panel { window, screen: RefCell::new(screen), taps, size, started: Instant::now(), trace }))
+    slint::platform::set_platform(Box::new(Panel { window, screen: RefCell::new(screen), touches, size, started: Instant::now(), trace }))
         .map_err(|e| PlatformError::Other(e.to_string()))?;
     Ok(size)
 }
@@ -58,12 +59,23 @@ fn default_font() {
 }
 
 impl Panel {
-    fn tap(&self, (x, y): (f32, f32)) {
-        let position = LogicalPosition::new(x, y);
-        self.window.dispatch_event(WindowEvent::PointerMoved { position });
-        self.window.dispatch_event(WindowEvent::PointerPressed { position, button: PointerEventButton::Left });
-        self.window.dispatch_event(WindowEvent::PointerReleased { position, button: PointerEventButton::Left });
-        self.window.dispatch_event(WindowEvent::PointerExited);
+    /// A touch as Slint pointer events (a drag scrolls a Flickable, a
+    /// press and release in place clicks).
+    fn touch(&self, t: Touch) {
+        let button = PointerEventButton::Left;
+        let w = &self.window;
+        match t {
+            Touch::Down(x, y) => {
+                let position = LogicalPosition::new(x, y);
+                w.dispatch_event(WindowEvent::PointerMoved { position });
+                w.dispatch_event(WindowEvent::PointerPressed { position, button });
+            }
+            Touch::Move(x, y) => w.dispatch_event(WindowEvent::PointerMoved { position: LogicalPosition::new(x, y) }),
+            Touch::Up(x, y) => {
+                w.dispatch_event(WindowEvent::PointerReleased { position: LogicalPosition::new(x, y), button });
+                w.dispatch_event(WindowEvent::PointerExited);
+            }
+        }
     }
 }
 
@@ -107,12 +119,12 @@ impl Platform for Panel {
                 std::thread::sleep(Duration::from_millis(16));
             } else {
                 let wait = slint::platform::duration_until_next_timer_update().unwrap_or(Duration::from_secs(1));
-                if let Ok(p) = self.taps.recv_timeout(wait.min(Duration::from_secs(1))) {
-                    self.tap(p);
+                if let Ok(t) = self.touches.recv_timeout(wait.min(Duration::from_secs(1))) {
+                    self.touch(t);
                 }
             }
-            while let Ok(p) = self.taps.try_recv() {
-                self.tap(p);
+            while let Ok(t) = self.touches.try_recv() {
+                self.touch(t);
             }
         }
     }

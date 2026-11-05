@@ -107,10 +107,12 @@ impl HtmlView {
         Ok(Self::attach(engine(dir, size, blitz), size, &html, show))
     }
 
-    /// A tap at element coordinates (logical pixels, as `tapped` gives them).
-    pub fn tap(&self, x: f32, y: f32) {
+    /// A tap where the element's `tapped` says: fractions of its width and
+    /// height (the page may be shown at another size than it is laid out).
+    pub fn tap(&self, fx: f32, fy: f32) {
         let mut s = self.state.borrow_mut();
-        if s.engine.click(x, y) {
+        let (w, h) = s.size;
+        if s.engine.click(fx * w as f32, fy * h as f32) {
             s.present();
         }
         drop(s);

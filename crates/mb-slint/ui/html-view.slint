@@ -1,8 +1,10 @@
 // A live HTML page as a Slint element. The Rust side (mb_slint::HtmlView)
-// renders the page into `frame` and handles `tapped`.
+// renders the page into `frame` and handles `tapped`: where the tap was, as
+// fractions of the element's width and height, so a page shown scaled down
+// still gets its own coordinates.
 export component HtmlView inherits Rectangle {
     in property <image> frame;
-    callback tapped(length, length);
+    callback tapped(float, float);
     clip: true;
     Image {
         source: root.frame;
@@ -12,7 +14,7 @@ export component HtmlView inherits Rectangle {
     }
     TouchArea {
         clicked => {
-            root.tapped(self.mouse-x, self.mouse-y);
+            root.tapped(self.mouse-x / self.width, self.mouse-y / self.height);
         }
     }
 }
