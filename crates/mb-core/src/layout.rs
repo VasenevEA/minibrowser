@@ -678,6 +678,13 @@ impl LayoutBox {
             }
         }
 
+        // text-align moves each line of inline content within the content box.
+        if self.text_align != TextAlign::Left
+            && self.children.iter().all(|c| matches!(c.content, BoxContent::Inline | BoxContent::Text(_) | BoxContent::Image { .. }))
+        {
+            self.align_inline_lines();
+        }
+
         // 4. Resolve height
         let children_height = if all_inline {
             // Inline children are laid out horizontally — height is based on
@@ -715,6 +722,41 @@ impl LayoutBox {
             if self.height < min_h {
                 self.height = min_h;
             }
+        }
+    }
+
+    /// Shifts each line of inline children (children sharing a top edge) right by
+    /// all or half of the space it leaves, for `text-align: right` / `center`.
+    fn align_inline_lines(&mut self) {
+        fn shift(node: &mut LayoutBox, dx: f32) {
+            node.x += dx;
+            for c in &mut node.children {
+                shift(c, dx);
+            }
+        }
+        let left = self.content_x();
+        let mut i = 0;
+        while i < self.children.len() {
+            let y = self.children[i].y;
+            let mut j = i;
+            let mut right = left;
+            while j < self.children.len() && (self.children[j].y - y).abs() < 0.5 {
+                let c = &self.children[j];
+                right = right.max(c.x + c.margin_box_width());
+                j += 1;
+            }
+            let free = (self.width - (right - left)).max(0.0);
+            let dx = match self.text_align {
+                TextAlign::Center => free / 2.0,
+                TextAlign::Right => free,
+                TextAlign::Left => 0.0,
+            };
+            if dx > 0.0 {
+                for c in &mut self.children[i..j] {
+                    shift(c, dx);
+                }
+            }
+            i = j;
         }
     }
 
