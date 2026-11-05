@@ -24,9 +24,12 @@ pub fn layout_tree(styled_root: &StyledNode, viewport_width: f32, viewport_heigh
     let Builder { mut tree, leaves, runs } = b;
 
     let available = Size { width: AvailableSpace::Definite(viewport_width), height: AvailableSpace::MaxContent };
+    // Taffy measures a leaf many times (each flex/grid pass); a leaf's text lays
+    // out the same at the same width, so each width runs once.
+    let mut memo: Vec<Vec<(u32, (f32, f32))>> = vec![Vec::new(); leaves.len()];
     let measured = tree.compute_layout_with_measure(root_id, available, |inputs, _id, ctx, style| {
         taffy::compute_leaf_layout(inputs, style, |_, _| 0.0, |known, avail| match ctx {
-            Some(i) => measure_leaf(&leaves[*i], known, avail),
+            Some(i) => measure_leaf(&leaves[*i], &mut memo[*i], known, avail),
             None => Size::ZERO,
         })
     });
@@ -120,11 +123,14 @@ impl Builder {
 
 /// Content size of a leaf for Taffy: the built-in layout runs on a copy of it
 /// whose own margin, border and padding are zeroed (Taffy adds those itself).
-fn measure_leaf(template: &LayoutBox, known: Size<Option<f32>>, avail: Size<AvailableSpace>) -> Size<f32> {
+fn measure_leaf(template: &LayoutBox, memo: &mut Vec<(u32, (f32, f32))>, known: Size<Option<f32>>, avail: Size<AvailableSpace>) -> Size<f32> {
     if let Size { width: Some(w), height: Some(h) } = known {
         return Size { width: w, height: h };
     }
-    let run = |width: f32| -> (f32, f32) {
+    let mut run = |width: f32| -> (f32, f32) {
+        if let Some((_, r)) = memo.iter().find(|(w, _)| *w == width.to_bits()) {
+            return *r;
+        }
         let mut b = template.clone();
         b.margin = layout::EdgeSizes::ZERO;
         b.padding = layout::EdgeSizes::ZERO;
@@ -134,7 +140,9 @@ fn measure_leaf(template: &LayoutBox, known: Size<Option<f32>>, avail: Size<Avai
         b.position = layout::Position::Static;
         left_align(&mut b);
         b.layout(0.0, 0.0, width, 100_000.0);
-        (extent(&b) - b.content_x(), b.height)
+        let r = (extent(&b) - b.content_x(), b.height);
+        memo.push((width.to_bits(), r));
+        r
     };
     let width = match known.width {
         Some(w) => w,
