@@ -24,6 +24,10 @@ use mb_qjs::QuickJs;
 #[cfg(feature = "kms")]
 mod kms;
 
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 /// Where frames go: fbdev or DRM/KMS.
 pub trait Screen {
     fn size(&self) -> (u32, u32);
@@ -166,7 +170,28 @@ fn abs_info(fd: i32, code: u32) -> AbsInfo {
     a
 }
 
-/// Sends taps in screen coordinates: one per touch, on release, at most every 300 ms.
+/// tslib's calibration (`a b c d e f s [xres yres]`: x = (c + a*rx + b*ry) / s,
+/// y = (f + d*rx + e*ry) / s) as MB_TOUCH_CAL's six factors, scaled when the
+/// file was made for another resolution.
+fn pointercal(path: &str, (w, h): (u32, u32)) -> Option<Vec<f32>> {
+    let v: Vec<f64> = fs::read_to_string(path).ok()?.split_whitespace().filter_map(|n| n.parse().ok()).collect();
+    if v.len() < 7 || v[6] == 0.0 {
+        return None;
+    }
+    let s = v[6];
+    let (kx, ky) = match v.get(7..9) {
+        Some([xr, yr]) if *xr > 0.0 && *yr > 0.0 => (w as f64 / xr, h as f64 / yr),
+        _ => (1.0, 1.0),
+    };
+    Some(
+        [v[0] / s * kx, v[1] / s * kx, v[2] / s * kx, v[3] / s * ky, v[4] / s * ky, v[5] / s * ky]
+            .iter()
+            .map(|x| *x as f32)
+            .collect(),
+    )
+}
+
+/// Sends taps in screen coordinates: one per touch, on release, at most every 120 ms.
 fn touch_thread(path: String, (w, h): (u32, u32), tx: mpsc::Sender<(f32, f32)>, probe: bool) {
     let mut f = match File::open(&path) {
         Ok(f) => f,
@@ -175,7 +200,13 @@ fn touch_thread(path: String, (w, h): (u32, u32), tx: mpsc::Sender<(f32, f32)>, 
     let fd = f.as_raw_fd();
     let (ax, ay) = (abs_info(fd, 0), abs_info(fd, 1));
     let flags = std::env::var("MB_TOUCH").unwrap_or_default();
-    let cal: Vec<f32> = std::env::var("MB_TOUCH_CAL").unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();
+    let mut cal: Vec<f32> = std::env::var("MB_TOUCH_CAL").unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();
+    if cal.is_empty() {
+        cal = pointercal("/etc/pointercal", (w, h)).unwrap_or_default();
+        if !cal.is_empty() {
+            eprintln!("touch: calibration from /etc/pointercal");
+        }
+    }
     eprintln!("touch: x {}..{} y {}..{} flags '{flags}'", ax.min, ax.max, ay.min, ay.max);
     // The kernel drops ABS events that repeat the last value, so start from it.
     let (mut x, mut y, mut down) = (ax.value, ay.value, false);
@@ -195,7 +226,7 @@ fn touch_thread(path: String, (w, h): (u32, u32), tx: mpsc::Sender<(f32, f32)>, 
             (3, 24) => val == 0 && down, // pressure gone
             _ => false,
         };
-        if !up || last.elapsed() < Duration::from_millis(300) {
+        if !up || last.elapsed() < Duration::from_millis(120) {
             continue;
         }
         down = false;

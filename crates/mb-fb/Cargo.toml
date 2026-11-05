@@ -12,9 +12,12 @@ libc = "0.2"
 log = "0.4"
 drm = { version = "0.14", optional = true }
 drm-fourcc = { version = "2.2.0", optional = true }
+mimalloc = { version = "0.1", default-features = false, optional = true }
 
 [features]
 bindgen = ["mb-qjs/bindgen"]
-default = ["kms"]
+default = ["kms", "mimalloc"]
 # DRM/KMS output (double buffering with vsync); without it only fbdev.
 kms = ["dep:drm", "dep:drm-fourcc"]
+# musl's malloc is slow; the engine allocates a lot per frame.
+mimalloc = ["dep:mimalloc"]
