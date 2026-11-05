@@ -166,7 +166,7 @@ impl FontduFont {
                     continue;
                 }
                 // Alpha blend: coverage * color alpha
-                let a = (coverage as u32 * color[3] as u32) / 255;
+                let a = (coverage_lut()[coverage as usize] as u32 * color[3] as u32) / 255;
                 let inv_a = 255 - a;
                 buf[offset] =
                     ((color[0] as u32 * a + buf[offset] as u32 * inv_a) / 255) as u8;
@@ -215,6 +215,13 @@ impl FontduFont {
         }
         cx - x as f32
     }
+}
+
+/// Glyph coverage with a mild gamma (0.85): fontdue's linear coverage looks
+/// thinner than browser text on the same font, and this narrows the gap.
+fn coverage_lut() -> &'static [u8; 256] {
+    static LUT: std::sync::OnceLock<[u8; 256]> = std::sync::OnceLock::new();
+    LUT.get_or_init(|| std::array::from_fn(|i| ((i as f32 / 255.0).powf(0.85) * 255.0).round() as u8))
 }
 
 impl Default for FontduFont {
