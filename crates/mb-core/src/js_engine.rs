@@ -283,10 +283,19 @@ fn set_style_by_id(node: &mut Node, id: &str, property: &str, value: &str) {
                 .attributes
                 .entry("style".to_string())
                 .or_insert_with(String::new);
-            if !style_attr.is_empty() && !style_attr.ends_with(';') {
-                style_attr.push(';');
+            // Replace the property's earlier value: animations set it every frame.
+            let mut decls: Vec<String> = style_attr
+                .split(';')
+                .filter(|d| {
+                    let name = d.split(':').next().unwrap_or("").trim();
+                    !name.is_empty() && !name.eq_ignore_ascii_case(&css_prop)
+                })
+                .map(|d| d.trim().to_string())
+                .collect();
+            if !value.trim().is_empty() {
+                decls.push(format!("{}:{}", css_prop, value));
             }
-            style_attr.push_str(&format!("{}:{};", css_prop, value));
+            *style_attr = decls.iter().map(|d| format!("{d};")).collect();
             return;
         }
     }
@@ -608,6 +617,25 @@ mod tests {
         let style = get_attr_by_id(&doc, "box", "style").unwrap();
         assert!(style.contains("color:blue"));
         assert!(style.contains("margin-top:10px;"));
+    }
+
+    #[test]
+    fn set_style_replaces_the_earlier_value() {
+        let mut doc = Document::new();
+        let el = Node::new_element("div", HashMap::from([
+            ("id".to_string(), "dot".to_string()),
+            ("style".to_string(), "color:blue".to_string()),
+        ]));
+        doc.root.children.push(el);
+        let set = |doc: &mut Document, v: &str| apply_commands(doc, &[DomCommand::SetStyleById {
+            id: "dot".into(), property: "left".into(), value: v.into(),
+        }]);
+        for x in 0..100 {
+            set(&mut doc, &format!("{x}px"));
+        }
+        assert_eq!(get_attr_by_id(&doc, "dot", "style").unwrap(), "color:blue;left:99px;");
+        set(&mut doc, "");
+        assert_eq!(get_attr_by_id(&doc, "dot", "style").unwrap(), "color:blue;");
     }
 
     // -----------------------------------------------------------------------
