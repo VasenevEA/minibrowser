@@ -560,6 +560,86 @@ pub fn resolve_styles(doc: &Document) -> StyledTree {
     StyledTree { root }
 }
 
+/// Marks a margin-top that came from the UA defaults of a quirky element.
+const QUIRKY_MARGIN_TOP: &str = "-mb-quirky-margin-top";
+
+/// Quirks mode (a page without a doctype, as browsers treat it): the default
+/// top margin of the first block at the top of `<body>` is ignored, as is that
+/// of a first child whose margin would collapse through its parent's top.
+pub fn apply_body_margin_quirk(tree: &mut StyledTree) {
+    fn find_body(n: &mut StyledNode) -> Option<&mut StyledNode> {
+        if matches!(&n.node_type, NodeType::Element(d) if d.tag_name == "body") {
+            return Some(n);
+        }
+        n.children.iter_mut().find_map(find_body)
+    }
+    fn px(n: &StyledNode, k: &str) -> f32 {
+        match n.styles.get(k) {
+            Some(CSSValue::Length(v, Unit::Px)) => *v,
+            _ => 0.0,
+        }
+    }
+    let Some(body) = find_body(&mut tree.root) else { return };
+    let mut node = body;
+    let mut at_body = true;
+    loop {
+        // Body is the quirk container whatever its padding; below it, a margin only
+        // reaches the body's top if it collapses through its parent's.
+        let sealed = px(node, "padding-top") > 0.0 || px(node, "border-top-width") > 0.0;
+        if (sealed && !at_body) || node.display() == "flex" || node.display() == "grid" {
+            return;
+        }
+        at_body = false;
+        let first = node.children.iter_mut().find(|c| match &c.node_type {
+            NodeType::Text(t) => !t.trim().is_empty(),
+            NodeType::Element(_) => c.display() != "none",
+            _ => false,
+        });
+        let Some(child) = first else { return };
+        if !matches!(child.node_type, NodeType::Element(_)) || child.display() == "inline" {
+            return;
+        }
+        if child.styles.contains_key(QUIRKY_MARGIN_TOP) {
+            child.styles.insert("margin-top".into(), CSSValue::Length(0.0, Unit::Px));
+        } else if px(child, "margin-top") != 0.0 {
+            return;
+        }
+        node = child;
+    }
+}
+
+/// The px font size of a style map (16 when unset).
+fn font_size_px(styles: &StyleMap) -> f32 {
+    match styles.get("font-size") {
+        Some(CSSValue::Length(v, Unit::Px)) | Some(CSSValue::Number(v)) => *v,
+        _ => 16.0,
+    }
+}
+
+/// Turns em (and font-size %) lengths into px, so later stages only see px and %.
+fn resolve_em(styles: &mut StyleMap, parent_styles: &StyleMap) {
+    let parent_fs = font_size_px(parent_styles);
+    let fs = match styles.get("font-size") {
+        Some(CSSValue::Length(v, Unit::Em)) => v * parent_fs,
+        Some(CSSValue::Length(v, Unit::Percent)) => v / 100.0 * parent_fs,
+        Some(CSSValue::Keyword(k)) => match k.as_str() {
+            "xx-small" => 9.0, "x-small" => 10.0, "small" => 13.0, "medium" => 16.0,
+            "large" => 18.0, "x-large" => 24.0, "xx-large" => 32.0,
+            "smaller" => parent_fs / 1.2, "larger" => parent_fs * 1.2,
+            _ => parent_fs,
+        },
+        _ => font_size_px(styles),
+    };
+    styles.insert("font-size".into(), CSSValue::Length(fs, Unit::Px));
+    for (k, v) in styles.iter_mut() {
+        if let CSSValue::Length(n, Unit::Em) = v {
+            if k != "font-size" {
+                *v = CSSValue::Length(*n * fs, Unit::Px);
+            }
+        }
+    }
+}
+
 /// Recursively style a single node.
 fn style_node(node: &Node, parent_styles: &StyleMap, rules: &[CSSRule]) -> StyledNode {
     let mut styles = StyleMap::new();
@@ -568,6 +648,7 @@ fn style_node(node: &Node, parent_styles: &StyleMap, rules: &[CSSRule]) -> Style
         NodeType::Element(data) => {
             // 1. Default styles for the tag.
             apply_default_styles(&data.tag_name, &mut styles);
+            let ua_margin_top = styles.get("margin-top").cloned();
 
             // 1b. Map HTML presentational attributes to CSS (e.g. <img width="200">).
             if data.tag_name == "img" {
@@ -610,6 +691,20 @@ fn style_node(node: &Node, parent_styles: &StyleMap, rules: &[CSSRule]) -> Style
                     styles.insert(k, v);
                 }
             }
+
+            // A default (not author) top margin of the elements whose margins are
+            // "quirky" in browsers: quirks mode drops it at the top of the body.
+            if ua_margin_top.is_some()
+                && styles.get("margin-top") == ua_margin_top.as_ref()
+                && matches!(data.tag_name.as_str(), "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
+                    | "ul" | "ol" | "dl" | "blockquote" | "figure" | "pre")
+            {
+                styles.insert(QUIRKY_MARGIN_TOP.into(), CSSValue::Keyword("1".into()));
+            }
+
+            // 4. Computed values: font-size in em/% is relative to the parent's,
+            //    other em lengths to this element's own font size.
+            resolve_em(&mut styles, parent_styles);
         }
         NodeType::Text(_) => {
             // Text nodes inherit all inheritable properties.
@@ -638,144 +733,68 @@ fn style_node(node: &Node, parent_styles: &StyleMap, rules: &[CSSRule]) -> Style
 /// Apply browser-like default styles for known HTML elements.
 fn apply_default_styles(tag: &str, styles: &mut StyleMap) {
     match tag {
+        // Block containers. Values follow the HTML spec's rendering section
+        // (https://html.spec.whatwg.org/multipage/rendering.html), as Chrome uses them;
+        // em lengths resolve against the element's font size after the cascade.
         "div" | "article" | "section" | "nav" | "aside" | "header" | "footer" | "main"
-        | "form" | "fieldset" | "figure" | "figcaption" | "details" | "summary"
-        | "blockquote" | "pre" | "table" | "hr" | "address" => {
-            styles.insert("display".into(), CSSValue::Keyword("block".into()));
-        }
-
-        "ul" | "ol" => {
-            styles.insert("display".into(), CSSValue::Keyword("block".into()));
-            styles.insert("margin-top".into(), CSSValue::Length(16.0, Unit::Px));
-            styles.insert("margin-bottom".into(), CSSValue::Length(16.0, Unit::Px));
-            styles.insert("padding-left".into(), CSSValue::Length(40.0, Unit::Px));
-        }
-
-        "li" => {
-            styles.insert("display".into(), CSSValue::Keyword("list-item".into()));
-        }
-
-        "dl" | "dt" | "dd" => {
+        | "form" | "fieldset" | "figcaption" | "details" | "summary" | "table" | "address"
+        | "html" | "dt" | "li" => {
             styles.insert("display".into(), CSSValue::Keyword("block".into()));
         }
 
         "body" => {
             styles.insert("display".into(), CSSValue::Keyword("block".into()));
-            styles.insert("margin".into(), CSSValue::Length(6.0, Unit::Px));
+            styles.insert("margin".into(), CSSValue::Length(8.0, Unit::Px));
         }
 
-        "html" => {
+        "p" | "dl" | "pre" => {
             styles.insert("display".into(), CSSValue::Keyword("block".into()));
+            styles.insert("margin-top".into(), CSSValue::Length(1.0, Unit::Em));
+            styles.insert("margin-bottom".into(), CSSValue::Length(1.0, Unit::Em));
         }
 
-        "p" => {
-            styles.insert("display".into(), CSSValue::Keyword("block".into()));
-            // Real browsers use 1em (16px) margins which collapse with parent.
-            // We use reduced values since we don't do parent-child margin collapse.
-            styles.insert("margin-top".into(), CSSValue::Length(8.0, Unit::Px));
-            styles.insert("margin-bottom".into(), CSSValue::Length(8.0, Unit::Px));
-        }
-
-        "h1" => {
-            styles.insert("display".into(), CSSValue::Keyword("block".into()));
-            styles.insert("font-size".into(), CSSValue::Length(32.0, Unit::Px));
-            styles.insert("font-weight".into(), CSSValue::Keyword("bold".into()));
-            // Browser default: 0.67em top and bottom margins.
-            // Browser default: 0.67em top and bottom margins.
-            // We use 0 top since we lack parent-child margin collapse, and
-            // reduced bottom to compensate for line-height differences.
-            styles.insert("margin-top".into(), CSSValue::Length(0.0, Unit::Px));
-            styles.insert("margin-bottom".into(), CSSValue::Length(10.0, Unit::Px));
-        }
-
-        "h2" => {
-            styles.insert("display".into(), CSSValue::Keyword("block".into()));
-            styles.insert("font-size".into(), CSSValue::Length(24.0, Unit::Px));
-            styles.insert("font-weight".into(), CSSValue::Keyword("bold".into()));
-            styles.insert("margin-top".into(), CSSValue::Length(0.0, Unit::Px));
-            styles.insert("margin-bottom".into(), CSSValue::Length(8.0, Unit::Px));
-        }
-
-        "h3" => {
-            styles.insert("display".into(), CSSValue::Keyword("block".into()));
-            styles.insert("font-size".into(), CSSValue::Length(18.72, Unit::Px));
-            styles.insert("font-weight".into(), CSSValue::Keyword("bold".into()));
-            styles.insert("margin-top".into(), CSSValue::Length(18.72, Unit::Px));
-            styles.insert("margin-bottom".into(), CSSValue::Length(18.72, Unit::Px));
-        }
-
-        "h4" => {
-            styles.insert("display".into(), CSSValue::Keyword("block".into()));
-            styles.insert("font-size".into(), CSSValue::Length(16.0, Unit::Px));
-            styles.insert("font-weight".into(), CSSValue::Keyword("bold".into()));
-            styles.insert("margin-top".into(), CSSValue::Length(21.28, Unit::Px));
-            styles.insert("margin-bottom".into(), CSSValue::Length(21.28, Unit::Px));
-        }
-
-        "h5" => {
-            styles.insert("display".into(), CSSValue::Keyword("block".into()));
-            styles.insert("font-size".into(), CSSValue::Length(13.28, Unit::Px));
-            styles.insert("font-weight".into(), CSSValue::Keyword("bold".into()));
-            styles.insert("margin-top".into(), CSSValue::Length(22.18, Unit::Px));
-            styles.insert("margin-bottom".into(), CSSValue::Length(22.18, Unit::Px));
-        }
-
-        "h6" => {
-            styles.insert("display".into(), CSSValue::Keyword("block".into()));
-            styles.insert("font-size".into(), CSSValue::Length(10.72, Unit::Px));
-            styles.insert("font-weight".into(), CSSValue::Keyword("bold".into()));
-            styles.insert("margin-top".into(), CSSValue::Length(24.98, Unit::Px));
-            styles.insert("margin-bottom".into(), CSSValue::Length(24.98, Unit::Px));
-        }
-
-        // Paragraph — block with top/bottom margin
-        // Real browsers use 1em (16px) but collapse with adjacent margins.
-        // Since we only do sibling collapse (not parent-child), use reduced values.
-        "p" => {
-            styles.insert("display".into(), CSSValue::Keyword("block".into()));
-            styles.insert("margin-top".into(), CSSValue::Length(4.0, Unit::Px));
-            styles.insert("margin-bottom".into(), CSSValue::Length(4.0, Unit::Px));
-        }
-
-        // Other block elements
-        "div" | "section" | "article" | "main" | "nav" | "aside" | "header" | "footer"
-        | "figure" | "figcaption" | "details" | "summary" => {
-            styles.insert("display".into(), CSSValue::Keyword("block".into()));
-        }
-
-        // List elements
         "ul" | "ol" => {
             styles.insert("display".into(), CSSValue::Keyword("block".into()));
-            styles.insert("margin-top".into(), CSSValue::Length(16.0, Unit::Px));
-            styles.insert("margin-bottom".into(), CSSValue::Length(16.0, Unit::Px));
+            styles.insert("margin-top".into(), CSSValue::Length(1.0, Unit::Em));
+            styles.insert("margin-bottom".into(), CSSValue::Length(1.0, Unit::Em));
             styles.insert("padding-left".into(), CSSValue::Length(40.0, Unit::Px));
         }
 
-        "li" => {
+        "dd" => {
             styles.insert("display".into(), CSSValue::Keyword("block".into()));
+            styles.insert("margin-left".into(), CSSValue::Length(40.0, Unit::Px));
         }
 
-        // Pre/blockquote
-        "pre" => {
+        "blockquote" | "figure" => {
             styles.insert("display".into(), CSSValue::Keyword("block".into()));
-            styles.insert("margin-top".into(), CSSValue::Length(16.0, Unit::Px));
-            styles.insert("margin-bottom".into(), CSSValue::Length(16.0, Unit::Px));
-        }
-
-        "blockquote" => {
-            styles.insert("display".into(), CSSValue::Keyword("block".into()));
-            styles.insert("margin-top".into(), CSSValue::Length(16.0, Unit::Px));
-            styles.insert("margin-bottom".into(), CSSValue::Length(16.0, Unit::Px));
+            styles.insert("margin-top".into(), CSSValue::Length(1.0, Unit::Em));
+            styles.insert("margin-bottom".into(), CSSValue::Length(1.0, Unit::Em));
             styles.insert("margin-left".into(), CSSValue::Length(40.0, Unit::Px));
             styles.insert("margin-right".into(), CSSValue::Length(40.0, Unit::Px));
         }
 
-        // HR
+        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+            let (size, margin) = match tag {
+                "h1" => (2.0, 0.67),
+                "h2" => (1.5, 0.83),
+                "h3" => (1.17, 1.0),
+                "h4" => (1.0, 1.33),
+                "h5" => (0.83, 1.67),
+                _ => (0.67, 2.33),
+            };
+            styles.insert("display".into(), CSSValue::Keyword("block".into()));
+            styles.insert("font-size".into(), CSSValue::Length(size, Unit::Em));
+            styles.insert("font-weight".into(), CSSValue::Keyword("bold".into()));
+            styles.insert("margin-top".into(), CSSValue::Length(margin, Unit::Em));
+            styles.insert("margin-bottom".into(), CSSValue::Length(margin, Unit::Em));
+        }
+
         "hr" => {
             styles.insert("display".into(), CSSValue::Keyword("block".into()));
-            styles.insert("margin-top".into(), CSSValue::Length(8.0, Unit::Px));
-            styles.insert("margin-bottom".into(), CSSValue::Length(8.0, Unit::Px));
+            styles.insert("margin-top".into(), CSSValue::Length(0.5, Unit::Em));
+            styles.insert("margin-bottom".into(), CSSValue::Length(0.5, Unit::Em));
             styles.insert("border-top-width".into(), CSSValue::Length(1.0, Unit::Px));
+            styles.insert("border-bottom-width".into(), CSSValue::Length(1.0, Unit::Px));
             styles.insert("border-color".into(), CSSValue::Color(128, 128, 128, 255));
         }
 
@@ -1185,8 +1204,12 @@ mod tests {
         assert_eq!(s.get("display"), Some(&CSSValue::Keyword("block".into())));
         assert_eq!(
             s.get("font-size"),
-            Some(&CSSValue::Length(32.0, Unit::Px))
+            Some(&CSSValue::Length(2.0, Unit::Em))
         );
+        // After the cascade: 2em of the 16px default, margins 0.67em of 32px.
+        resolve_em(&mut s, &StyleMap::new());
+        assert_eq!(s.get("font-size"), Some(&CSSValue::Length(32.0, Unit::Px)));
+        assert_eq!(s.get("margin-top"), Some(&CSSValue::Length(0.67 * 32.0, Unit::Px)));
     }
 
     #[test]

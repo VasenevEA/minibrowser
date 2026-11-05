@@ -9,7 +9,7 @@ tolerance. Writes the three images per page and report.md to tests/ref/.
   tools/refcompare.py [page.html ...]       default: www/demo/*.html
 Env: MB_SIZE=800x480, CHROME=/path/to/chrome
 """
-import glob, os, subprocess, sys, tempfile
+import glob, os, re, subprocess, sys, tempfile
 import numpy as np
 from PIL import Image
 
@@ -27,8 +27,11 @@ def chrome(page, out):
     html = open(page, encoding="utf-8").read()
     font = ("<style>@font-face{font-family:MBDejaVu;src:url('file://%s')}"
             "html,body,*{font-family:MBDejaVu !important}</style>" % FONT)
+    # After the doctype, if any: a <style> before it would put Chrome in quirks mode.
+    m = re.match(r"\s*<!doctype[^>]*>", html, re.I)
+    at = m.end() if m else 0
     with tempfile.NamedTemporaryFile("w", suffix=".html", dir=os.path.dirname(page), delete=False, encoding="utf-8") as f:
-        f.write(font + html)
+        f.write(html[:at] + font + html[at:])
         tmp = f.name
     try:
         subprocess.run([CHROME, "--headless=new", "--disable-gpu", "--hide-scrollbars",

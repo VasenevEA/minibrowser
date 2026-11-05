@@ -72,6 +72,8 @@ pub struct Page {
     now_ms: f64,
     engine: LayoutEngine,
     layout: Option<layout::LayoutBox>,
+    /// No doctype: lay out as browsers do in quirks mode.
+    quirks: bool,
 }
 
 impl Page {
@@ -94,12 +96,14 @@ impl Page {
             now_ms: 0.0,
             engine: LayoutEngine::default(),
             layout: None,
+            quirks: false,
         }
     }
 
     /// Parses `html`, runs its scripts on a fresh JS state and paints it.
     pub fn load(&mut self, html: &str) {
         self.js.reset();
+        self.quirks = is_quirks(html);
         let mut doc = html_parser::parse_html(html);
         let script_count = js_engine::execute_scripts(&mut doc, self.js.as_mut(), self.now_ms);
         if script_count > 0 {
@@ -116,6 +120,7 @@ impl Page {
     /// the scroll position. This is v0.7's "live" mode, for pages that redraw from a
     /// top-level script instead of setting a timer; new pages should use timers.
     pub fn reload(&mut self, html: &str) {
+        self.quirks = is_quirks(html);
         let mut doc = html_parser::parse_html(html);
         js_engine::execute_scripts(&mut doc, self.js.as_mut(), self.now_ms);
         self.document = Some(doc);
@@ -305,7 +310,10 @@ impl Page {
         let Some(document) = self.document.as_ref() else { return };
         self.pending_images.clear();
 
-        let styled = css::resolve_styles(document);
+        let mut styled = css::resolve_styles(document);
+        if self.quirks {
+            css::apply_body_margin_quirk(&mut styled);
+        }
         let mut cx = Cx {
             focused: self.focused_input.as_deref(),
             images: &self.images,
@@ -335,6 +343,16 @@ impl Page {
             content_width: total_width,
             content_height: total_height,
         };
+    }
+}
+
+/// A page without `<!DOCTYPE ...>` before its first element is in quirks mode.
+fn is_quirks(html: &str) -> bool {
+    let head: String = html.chars().take(1024).collect::<String>().to_ascii_lowercase();
+    match (head.find("<!doctype"), head.find("<html").or_else(|| head.find("<body"))) {
+        (Some(d), Some(e)) => d > e,
+        (Some(_), None) => false,
+        (None, _) => true,
     }
 }
 

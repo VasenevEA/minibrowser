@@ -4,7 +4,11 @@
 //! Taffy has no inline layout, so boxes that hold inline content (text, inline
 //! elements, images, or a block whose children are all of those) are Taffy
 //! leaves: they are measured, and finally laid out inside the rectangle Taffy
-//! gave them, by the original layout code in [`crate::layout`].
+//! gave them, by the original layout code in [`crate::layout`]. A run of
+//! inline-level children inside a block that also has block children becomes
+//! one anonymous leaf, as CSS wraps it in an anonymous block box.
+
+use std::collections::HashMap;
 
 use taffy::prelude::*;
 use taffy::AvailableSpace;
@@ -15,9 +19,9 @@ use crate::layout::{self, BoxContent, LayoutBox, StyledNode};
 /// grows with the content.
 pub fn layout_tree(styled_root: &StyledNode, viewport_width: f32, viewport_height: f32) -> LayoutBox {
     let mut root = layout::build_layout_box(styled_root);
-    let mut tree: TaffyTree<usize> = TaffyTree::new();
-    let mut leaves: Vec<LayoutBox> = Vec::new();
-    let root_id = build(&mut tree, &mut leaves, styled_root, &root, true);
+    let mut b = Builder { tree: TaffyTree::new(), leaves: Vec::new(), runs: HashMap::new() };
+    let root_id = b.build(styled_root, &root, true);
+    let Builder { mut tree, leaves, runs } = b;
 
     let available = Size { width: AvailableSpace::Definite(viewport_width), height: AvailableSpace::MaxContent };
     let measured = tree.compute_layout_with_measure(root_id, available, |inputs, _id, ctx, style| {
@@ -30,8 +34,16 @@ pub fn layout_tree(styled_root: &StyledNode, viewport_width: f32, viewport_heigh
         log::warn!("taffy: {e:?}; falling back to the built-in layout");
         return layout::layout_tree(styled_root, viewport_width, viewport_height);
     }
-    place(&tree, root_id, &mut root, 0.0, 0.0);
+    place(&tree, &leaves, &runs, root_id, &mut root, 0.0, 0.0);
     root
+}
+
+struct Builder {
+    tree: TaffyTree<usize>,
+    /// Box templates of the leaves, indexed by the Taffy node context.
+    leaves: Vec<LayoutBox>,
+    /// Anonymous run leaves: which children of their parent box they hold.
+    runs: HashMap<NodeId, Vec<usize>>,
 }
 
 /// True for boxes whose content is inline: they become Taffy leaves.
@@ -51,26 +63,59 @@ fn is_inline_level(node: &StyledNode) -> bool {
         || (node.display == layout::Display::Inline && node.children.iter().all(is_inline_level))
 }
 
-/// Mirrors the styled tree into Taffy nodes; leaf boxes are kept in `leaves`
-/// (their index is the Taffy node context).
-fn build(tree: &mut TaffyTree<usize>, leaves: &mut Vec<LayoutBox>, node: &StyledNode, boxed: &LayoutBox, root: bool) -> NodeId {
-    let style = style_of(node, root);
-    if node.display != layout::Display::None && is_leaf(node) {
-        leaves.push(boxed.clone());
-        return tree.new_leaf_with_context(style, leaves.len() - 1).expect("taffy leaf");
-    }
-    let children: Vec<NodeId> = if node.display == layout::Display::None {
-        Vec::new()
-    } else {
+impl Builder {
+    /// Mirrors the styled tree into Taffy nodes; leaf boxes are kept in `leaves`
+    /// (their index is the Taffy node context).
+    fn build(&mut self, node: &StyledNode, boxed: &LayoutBox, root: bool) -> NodeId {
+        let style = style_of(node, root);
+        if node.display != layout::Display::None && is_leaf(node) {
+            self.leaves.push(boxed.clone());
+            return self.tree.new_leaf_with_context(style, self.leaves.len() - 1).expect("taffy leaf");
+        }
+        if node.display == layout::Display::None {
+            return self.tree.new_leaf(style).expect("taffy node");
+        }
         // build_layout_box drops hidden children; skip them too to stay in step.
-        node.children
-            .iter()
-            .filter(|c| c.display != layout::Display::None)
-            .zip(&boxed.children)
-            .map(|(c, b)| build(tree, leaves, c, b, false))
-            .collect()
-    };
-    tree.new_with_children(style, &children).expect("taffy node")
+        let visible: Vec<&StyledNode> = node.children.iter().filter(|c| c.display != layout::Display::None).collect();
+        let block_flow = matches!(node.display, layout::Display::Block | layout::Display::Inline);
+        let mut children = Vec::new();
+        let mut i = 0;
+        while i < visible.len() {
+            if block_flow && is_inline_level(visible[i]) {
+                let start = i;
+                while i < visible.len() && is_inline_level(visible[i]) {
+                    i += 1;
+                }
+                children.push(self.run(boxed, (start..i).collect()));
+            } else {
+                children.push(self.build(visible[i], &boxed.children[i], false));
+                i += 1;
+            }
+        }
+        self.tree.new_with_children(style, &children).expect("taffy node")
+    }
+
+    /// An anonymous block leaf holding `members` (indices into `parent.children`).
+    fn run(&mut self, parent: &LayoutBox, members: Vec<usize>) -> NodeId {
+        let mut w = parent.clone();
+        w.children = members.iter().map(|&i| parent.children[i].clone()).collect();
+        w.content = BoxContent::Block;
+        w.margin = layout::EdgeSizes::ZERO;
+        w.padding = layout::EdgeSizes::ZERO;
+        w.border = layout::EdgeSizes::ZERO;
+        w.background_color = None;
+        w.border_color = None;
+        w.border_radius = 0.0;
+        w.explicit_width = layout::Dimension::Auto;
+        w.explicit_height = layout::Dimension::Auto;
+        w.min_height = layout::Dimension::Auto;
+        w.position = layout::Position::Static;
+        w.opacity = 1.0;
+        self.leaves.push(w);
+        let id = self.tree.new_leaf_with_context(Style::default(), self.leaves.len() - 1).expect("taffy run");
+        self.runs.insert(id, members);
+        id
+    }
 }
 
 /// Content size of a leaf for Taffy: the built-in layout runs on a copy of it
@@ -128,7 +173,7 @@ fn extent(b: &LayoutBox) -> f32 {
 
 /// Copies Taffy's geometry into the box tree. `(px, py)` is the parent's
 /// border-box origin in page coordinates.
-fn place(tree: &TaffyTree<usize>, id: NodeId, b: &mut LayoutBox, px: f32, py: f32) {
+fn place(tree: &TaffyTree<usize>, leaves: &[LayoutBox], runs: &HashMap<NodeId, Vec<usize>>, id: NodeId, b: &mut LayoutBox, px: f32, py: f32) {
     let l = tree.layout(id).expect("taffy layout");
     let (bx, by) = (px + l.location.x, py + l.location.y);
     let edges = |r: taffy::Rect<f32>| layout::EdgeSizes { top: r.top, right: r.right, bottom: r.bottom, left: r.left };
@@ -157,8 +202,21 @@ fn place(tree: &TaffyTree<usize>, id: NodeId, b: &mut LayoutBox, px: f32, py: f3
     b.width = content_w;
     b.height = content_h;
     let kids = tree.children(id).expect("taffy children");
-    for (cid, child) in kids.into_iter().zip(b.children.iter_mut()) {
-        place(tree, cid, child, bx, by);
+    let mut next = 0;
+    for cid in kids {
+        if let Some(members) = runs.get(&cid) {
+            // Lay the run out as its anonymous block, then hand the boxes back.
+            let ctx = *tree.get_node_context(cid).expect("run context");
+            let mut w = leaves[ctx].clone();
+            place(tree, leaves, runs, cid, &mut w, bx, by);
+            for (&i, laid) in members.iter().zip(w.children) {
+                b.children[i] = laid;
+            }
+            next = members.last().map_or(next, |&i| i + 1);
+        } else if let Some(child) = b.children.get_mut(next) {
+            place(tree, leaves, runs, cid, child, bx, by);
+            next += 1;
+        }
     }
 }
 
