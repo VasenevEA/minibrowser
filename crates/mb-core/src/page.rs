@@ -27,18 +27,19 @@ pub struct HitRegion {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LayoutEngine {
     /// The original hand-written block/inline/flex/grid layout.
-    #[default]
     Builtin,
     /// Taffy for block, flex and grid; the built-in code for inline content.
+    #[default]
     Taffy,
 }
 
 impl LayoutEngine {
-    /// From the `MB_LAYOUT` environment variable ("taffy" or "builtin").
+    /// From the `MB_LAYOUT` environment variable: "builtin" picks the original
+    /// layout, anything else Taffy.
     pub fn from_env() -> Self {
         match std::env::var("MB_LAYOUT").as_deref() {
-            Ok("taffy") => LayoutEngine::Taffy,
-            _ => LayoutEngine::Builtin,
+            Ok("builtin") => LayoutEngine::Builtin,
+            _ => LayoutEngine::Taffy,
         }
     }
 }
@@ -267,6 +268,10 @@ impl Page {
         let mut out = String::new();
         if let Some(root) = &self.layout {
             walk(root, 0, &mut out);
+        }
+        for r in &self.hit_regions {
+            out.push_str(&format!("hit #{} x={:.0} y={:.0} w={:.0} h={:.0} {}\n", r.id, r.x, r.y, r.w, r.h,
+                if r.is_input { "input".to_string() } else { r.onclick.chars().take(40).collect() }));
         }
         out
     }

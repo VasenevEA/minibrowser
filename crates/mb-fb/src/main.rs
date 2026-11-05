@@ -105,7 +105,8 @@ fn touch_thread(path: String, (w, h): (u32, u32), tx: mpsc::Sender<(f32, f32)>, 
     let (ax, ay) = (abs_info(fd, 0), abs_info(fd, 1));
     let flags = std::env::var("MB_TOUCH").unwrap_or_default();
     eprintln!("touch: x {}..{} y {}..{} flags '{flags}'", ax.min, ax.max, ay.min, ay.max);
-    let (mut x, mut y, mut down) = (0i32, 0i32, false);
+    // The kernel drops ABS events that repeat the last value, so start from it.
+    let (mut x, mut y, mut down) = (ax.value, ay.value, false);
     let mut last = Instant::now() - Duration::from_secs(1);
     let mut ev = [0u8; 16];
     while f.read_exact(&mut ev).is_ok() {
