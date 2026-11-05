@@ -42,6 +42,8 @@ struct Fb {
     var: VarInfo,
     line: usize,
     buf: Vec<u8>,
+    /// The RGBA last presented, to skip rows that did not change.
+    last: Vec<u8>,
 }
 
 impl Fb {
@@ -51,28 +53,56 @@ impl Fb {
         unsafe { libc::ioctl(file.as_raw_fd(), 0x4600 as _, &mut var) };
         assert!(var.bpp == 32, "need a 32 bpp framebuffer, got {}", var.bpp);
         let line = var.xres_v as usize * 4;
-        Fb { file, line, buf: vec![0; line * var.yres as usize], var }
+        Fb { file, line, buf: vec![0; line * var.yres as usize], var, last: Vec::new() }
     }
 
     fn size(&self) -> (u32, u32) {
         (self.var.xres, self.var.yres)
     }
 
-    /// Copies `w * h` RGBA onto the visible screen in the framebuffer's own pixel layout.
+    /// Copies `w * h` RGBA onto the visible screen in the framebuffer's own pixel
+    /// layout, converting and writing only the rows that changed since last time.
     fn present(&mut self, rgba: &[u8], w: u32) {
         let v = &self.var;
         let alpha = if v.t[1] > 0 { 0xffu32 << v.t[0] } else { 0 };
-        let (cols, rows) = (w.min(v.xres) as usize, v.yres as usize);
-        for y in 0..rows.min(rgba.len() / (w as usize * 4)) {
-            for x in 0..cols {
-                let i = (y * w as usize + x) * 4;
-                let p = (rgba[i] as u32) << v.r[0] | (rgba[i + 1] as u32) << v.g[0] | (rgba[i + 2] as u32) << v.b[0] | alpha;
-                let o = y * self.line + x * 4;
-                self.buf[o..o + 4].copy_from_slice(&p.to_le_bytes());
+        let (cols, rows) = (w.min(v.xres) as usize, (v.yres as usize).min(rgba.len() / (w as usize * 4)));
+        let src_line = w as usize * 4;
+        let full = self.last.len() != rgba.len();
+        let (mut first, mut end) = (usize::MAX, 0);
+        let mut dirty = vec![false; rows];
+        for y in 0..rows {
+            let src = &rgba[y * src_line..y * src_line + cols * 4];
+            if !full && src == &self.last[y * src_line..y * src_line + cols * 4] {
+                continue;
+            }
+            dirty[y] = true;
+            first = first.min(y);
+            end = y + 1;
+            let dst = &mut self.buf[y * self.line..y * self.line + cols * 4];
+            for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+                let p = (s[0] as u32) << v.r[0] | (s[1] as u32) << v.g[0] | (s[2] as u32) << v.b[0] | alpha;
+                d.copy_from_slice(&p.to_le_bytes());
             }
         }
-        let off = (v.yoff as usize * self.line) as u64;
-        let _ = self.file.seek(SeekFrom::Start(off)).and_then(|_| self.file.write_all(&self.buf));
+        self.last.clear();
+        self.last.extend_from_slice(rgba);
+        // Write each run of changed rows; a clock at the top and a counter at the
+        // bottom should not rewrite everything in between.
+        let yoff = v.yoff as usize;
+        let mut y = first;
+        while y < end {
+            if !dirty[y] {
+                y += 1;
+                continue;
+            }
+            let start = y;
+            while y < end && dirty[y] {
+                y += 1;
+            }
+            let off = ((yoff + start) * self.line) as u64;
+            let bytes = &self.buf[start * self.line..y * self.line];
+            let _ = self.file.seek(SeekFrom::Start(off)).and_then(|_| self.file.write_all(bytes));
+        }
     }
 }
 
@@ -221,7 +251,10 @@ fn main() {
         dirty |= ticked;
         if dirty {
             let t = Instant::now();
-            fb.present(&page.viewport(), w);
+            match page.viewport_slice() {
+                Some(px) => fb.present(px, w),
+                None => fb.present(&page.viewport(), w),
+            }
             if trace {
                 eprintln!("frame: timers+layout+paint {t_tick:.0} ms, present {:.0} ms", ms(t));
             }

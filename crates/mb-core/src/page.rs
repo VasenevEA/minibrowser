@@ -240,6 +240,18 @@ impl Page {
         out
     }
 
+    /// The visible part of the page without copying, when it is one contiguous
+    /// run of the page buffer (page as wide as the viewport, scrolled only
+    /// vertically); else use `viewport`.
+    pub fn viewport_slice(&self) -> Option<&[u8]> {
+        if self.page_w != self.width || self.scroll_x != 0.0 || self.pixels.is_empty() {
+            return None;
+        }
+        let row = self.width as usize * 4;
+        let top = (self.scroll_y as usize).min(self.page_h.saturating_sub(self.height) as usize);
+        self.pixels.get(top * row..(top + self.height as usize) * row)
+    }
+
     /// The whole painted page (it may be taller or wider than the viewport).
     pub fn full_page(&self) -> (Vec<u8>, u32, u32) {
         (self.pixels.clone(), self.page_w, self.page_h)
