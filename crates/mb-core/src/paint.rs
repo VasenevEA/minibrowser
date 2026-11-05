@@ -24,7 +24,7 @@ pub fn paint(layout_root: &LayoutBox, width: u32, height: u32) -> Vec<u8> {
 
     paint_box(&mut pixmap, layout_root, font);
 
-    pixmap.data().to_vec()
+    pixmap.take()
 }
 
 // ---------------------------------------------------------------------------
@@ -344,8 +344,18 @@ fn fill_rect(pixmap: &mut Pixmap, x: f32, y: f32, w: f32, h: f32, color: Color, 
         return;
     }
 
-    let mut pb = PathBuilder::new();
     let r = border_radius.min(w / 2.0).min(h / 2.0);
+    if r <= 0.0 {
+        // Square corners: tiny-skia's rectangle fast path, no path rasterizing.
+        let mut paint = Paint::default();
+        paint.set_color_rgba8(color.r, color.g, color.b, color.a);
+        paint.anti_alias = false;
+        if let Some(rect) = tiny_skia::Rect::from_xywh(x, y, w, h) {
+            pixmap.fill_rect(rect, &paint, Transform::identity(), None);
+        }
+        return;
+    }
+    let mut pb = PathBuilder::new();
     if r > 0.0 {
         pb.move_to(x + r, y);
         pb.line_to(x + w - r, y);
@@ -371,7 +381,8 @@ fn fill_rect(pixmap: &mut Pixmap, x: f32, y: f32, w: f32, h: f32, color: Color, 
 
     let mut paint = Paint::default();
     paint.set_color_rgba8(color.r, color.g, color.b, color.a);
-    paint.anti_alias = false;
+    // Rounded corners look like browsers' only when antialiased.
+    paint.anti_alias = true;
 
     pixmap.fill_path(
         &path,
