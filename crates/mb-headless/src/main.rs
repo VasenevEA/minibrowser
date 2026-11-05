@@ -63,12 +63,28 @@ fn main() {
     let frames = std::env::var("MB_FRAMES").ok();
     let mut next_frame = 0.0;
     let mut frame_no = 0;
+    // MB_CLICKS="ms:x,y;ms:x,y": taps at those page times during --wait.
+    let mut timed: Vec<(f64, f32, f32)> = std::env::var("MB_CLICKS").unwrap_or_default().split(';').filter_map(|c| {
+        let (t, xy) = c.split_once(':')?;
+        let (x, y) = xy.split_once(',')?;
+        Some((t.trim().parse().ok()?, x.trim().parse().ok()?, y.trim().parse().ok()?))
+    }).collect();
+    timed.sort_by(|a, b| a.0.total_cmp(&b.0));
+    timed.reverse();
     while wait > 0.0 && now < wait {
         let mut step = page.next_timer(now).unwrap_or(wait).max(1.0).min(wait - now);
         if frames.is_some() {
             step = step.min((next_frame - now).max(1.0));
         }
+        if let Some(&(t, _, _)) = timed.last() {
+            step = step.min((t - now).max(1.0));
+        }
         now += step;
+        while timed.last().is_some_and(|&(t, _, _)| t <= now) {
+            let (_, x, y) = timed.pop().unwrap();
+            page.tick(now);
+            page.click(x, y);
+        }
         // MB_REALTIME=1: the page clock runs with the wall clock, so answers
         // from the network (fetch, WebSocket) can arrive in between.
         if std::env::var_os("MB_REALTIME").is_some() {
