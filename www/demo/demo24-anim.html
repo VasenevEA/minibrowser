@@ -14,7 +14,6 @@ body { margin: 0; background: #0a0d13; color: #e8edf5; font-size: 14px; }
 .btn.on { background: #0e3a52; border-color: #38bdf8; color: #38bdf8; }
 .wide { width: 120px; }
 .arena { position: relative; height: 118px; margin: 8px 10px 0 10px; background: #0f141d; border: 1px solid #212938; border-radius: 10px; overflow: hidden; }
-.dot { position: absolute; left: 20px; top: 20px; width: 60px; height: 60px; border-radius: 30px; background: #a78bfa; }
 .hud { position: absolute; left: 12px; top: 8px; font-size: 12px; color: #7c899e; }
 .score { position: absolute; right: 12px; top: 6px; font-size: 20px; font-weight: bold; color: #a78bfa; }
 </style>
@@ -70,15 +69,20 @@ body { margin: 0; background: #0a0d13; color: #e8edf5; font-size: 14px; }
     </div>
   </div>
 
-  <div class="arena">
+  <div id="arena" class="arena">
+    <svg width="778" height="118" viewBox="0 0 778 118">
+      <circle id="ball" cx="50" cy="50" r="30" fill="#a78bfa"/>
+    </svg>
     <div class="hud">Поймай шарик: тапни по нему</div>
     <div id="score" class="score">0</div>
-    <div id="dot" class="dot"></div>
   </div>
 
   <script>
     function $(id) { return document.getElementById(id); }
     function pad(n) { return n < 10 ? '0' + n : '' + n; }
+    // Text only when it changes: an SVG-only frame skips styling and layout.
+    var shown = {};
+    function text(id, t) { if (shown[id] !== t) { shown[id] = t; $(id).textContent = t; } }
 
     // Pressure gauge: the needle eases toward the target.
     var target = 3, p = 0, pShown = -1;
@@ -103,9 +107,11 @@ body { margin: 0; background: #0a0d13; color: #e8edf5; font-size: 14px; }
       $('flow').setAttribute('opacity', open ? '1' : '0');
     };
 
-    // Catch the ball.
-    var bx = 20, by = 20, vx = 2.2, vy = 1.4, score = 0, flash = 0;
-    $('dot').onclick = function () {
+    // Catch the ball: the arena gets the tap, the ball is a circle in its SVG.
+    var bx = 50, by = 50, vx = 2.2, vy = 1.4, score = 0, flash = 0;
+    $('arena').onclick = function (e) {
+      var dx = e.offsetX - bx, dy = e.offsetY - by;
+      if (dx * dx + dy * dy > 45 * 45) return;
       score++;
       $('score').textContent = score;
       flash = 8;
@@ -127,7 +133,7 @@ body { margin: 0; background: #0a0d13; color: #e8edf5; font-size: 14px; }
         var ex = 100 + 80 * Math.cos(r), ey = 106 + 80 * Math.sin(r);
         $('arc').setAttribute('d', 'M 20 106 A 80 80 0 0 1 ' + ex.toFixed(1) + ' ' + ey.toFixed(1));
         $('arc').setAttribute('stroke', p < 4 ? '#34d399' : p < 5 ? '#fbbf24' : '#f87171');
-        $('pv').textContent = p.toFixed(1);
+        text('pv', p.toFixed(1));
       }
 
       // Fan
@@ -136,7 +142,7 @@ body { margin: 0; background: #0a0d13; color: #e8edf5; font-size: 14px; }
         angle = (angle + speed * 400 * dt) % 360;
         $('fan').setAttribute('transform', 'rotate(' + angle.toFixed(0) + ' 66 66)');
       }
-      $('rpm').textContent = Math.round(speed * 500) + ' об/мин';
+      text('rpm', Math.round(speed * 50) * 10 + ' об/мин');
 
       // Tank
       var before = level;
@@ -152,19 +158,18 @@ body { margin: 0; background: #0a0d13; color: #e8edf5; font-size: 14px; }
         $('level').setAttribute('y', String(top));
         $('level').setAttribute('height', String(h));
         $('wave').setAttribute('d', d);
-        $('lv').textContent = Math.round(level) + '%';
+        text('lv', Math.round(level) + '%');
       }
 
       // Ball
       bx += vx * dt * 60; by += vy * dt * 60;
-      if (bx < 0) { bx = 0; vx = -vx; }
-      if (bx > 718) { bx = 718; vx = -vx; }
-      if (by < 0) { by = 0; vy = -vy; }
-      if (by > 56) { by = 56; vy = -vy; }
-      var dot = $('dot').style;
-      dot.left = Math.round(bx) + 'px';
-      dot.top = Math.round(by) + 'px';
-      if (flash > 0) { flash--; dot.background = flash > 0 ? '#fbbf24' : '#a78bfa'; }
+      if (bx < 30) { bx = 30; vx = -vx; }
+      if (bx > 748) { bx = 748; vx = -vx; }
+      if (by < 30) { by = 30; vy = -vy; }
+      if (by > 88) { by = 88; vy = -vy; }
+      $('ball').setAttribute('cx', bx.toFixed(1));
+      $('ball').setAttribute('cy', by.toFixed(1));
+      if (flash > 0) { flash--; $('ball').setAttribute('fill', flash > 0 ? '#fbbf24' : '#a78bfa'); }
 
       frames++;
       if (now - fpsAt >= 1000) {

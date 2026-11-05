@@ -61,7 +61,7 @@ Object.defineProperty(MockElement.prototype, 'onclick', {
     if (typeof fn !== 'function') return;
     var name = '__mb_click_' + this._id.replace(/[^a-zA-Z0-9]/g, '_');
     window[name] = fn;
-    __mb_push({ type: 'SetAttribute', id: this._id, name: 'onclick', value: name + '.call(document.getElementById(' + JSON.stringify(this._id) + '))' });
+    __mb_push({ type: 'SetAttribute', id: this._id, name: 'onclick', value: name + '.call(document.getElementById(' + JSON.stringify(this._id) + '), window.event)' });
   }
 });
 Object.defineProperty(MockElement.prototype, 'className', {

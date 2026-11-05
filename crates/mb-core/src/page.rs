@@ -80,6 +80,8 @@ pub struct Page {
     /// Element ids already handed to the JS host (see `seed_js`).
     seeded: std::collections::HashSet<String>,
     svg: crate::svg::SvgCache,
+    /// The styled tree of the last full render, for repaints that skip styling.
+    styled: Option<css::StyledNode>,
 }
 
 impl Page {
@@ -106,6 +108,7 @@ impl Page {
             damage: Vec::new(),
             seeded: std::collections::HashSet::new(),
             svg: crate::svg::SvgCache::default(),
+            styled: None,
         }
     }
 
@@ -159,11 +162,14 @@ impl Page {
     pub fn tick(&mut self, now_ms: f64) -> bool {
         self.now_ms = now_ms;
         let Some(doc) = self.document.as_mut() else { return false };
-        if js_engine::tick_timers(doc, self.js.as_mut(), now_ms) == 0 {
+        let cmds = js_engine::tick_timers(doc, self.js.as_mut(), now_ms);
+        if cmds.is_empty() {
             return false;
         }
         self.seed_new();
-        self.render();
+        if !self.update_svg_only(&cmds) {
+            self.render();
+        }
         true
     }
 
@@ -203,9 +209,17 @@ impl Page {
         for (id, value) in input_values(&doc.root) {
             self.js.set_input_value(&id, &value);
         }
-        js_engine::execute_onclick(doc, self.js.as_mut(), &hit.onclick, self.now_ms);
+        // Handlers get the tap as window.event (and their first argument).
+        let code = format!(
+            "window.event = {{type: 'click', clientX: {x}, clientY: {y}, pageX: {page_x}, pageY: {page_y}, offsetX: {}, offsetY: {}, \
+             preventDefault: function () {{}}, stopPropagation: function () {{}}}};\n{}",
+            page_x - hit.x, page_y - hit.y, hit.onclick
+        );
+        let cmds = js_engine::execute_onclick(doc, self.js.as_mut(), &code, self.now_ms);
         self.seed_new();
-        self.render();
+        if !self.update_svg_only(&cmds) {
+            self.render();
+        }
         true
     }
 
@@ -371,6 +385,73 @@ impl Page {
         true
     }
 
+    /// Commands that only change attributes inside inline `<svg>` drawings (a
+    /// needle's transform, a level's height) change no style and no layout: the
+    /// drawings are redrawn into their boxes and only those are repainted. Returns
+    /// false, having changed nothing visible, when the commands need a full render.
+    fn update_svg_only(&mut self, cmds: &[js_engine::DomCommand]) -> bool {
+        let (Some(styled), Some(layout)) = (self.styled.as_mut(), self.layout.as_mut()) else { return false };
+        if cmds.is_empty() || self.pixels.is_empty() || std::env::var_os("MB_FULL_RENDER").is_some() {
+            return false;
+        }
+        // Each command's drawing, by its path of child indices in the styled tree.
+        let mut drawings: Vec<Vec<usize>> = Vec::new();
+        for c in cmds {
+            let js_engine::DomCommand::SetAttribute { id, name, .. } = c else {
+                if std::env::var_os("MB_TRACE").is_some() {
+                    eprintln!("full render for {c:?}");
+                }
+                return false;
+            };
+            if matches!(name.as_str(), "id" | "class" | "style") {
+                return false;
+            }
+            let Some(path) = find_path(styled, id) else { return false };
+            // The nearest <svg> above the element (not the element: its size is layout).
+            let Some(svg) = (0..path.len()).rev().find(|&n| is_tag(node_at(styled, &path[..n]), "svg")) else { return false };
+            if !drawings.iter().any(|d| d[..] == path[..svg]) {
+                drawings.push(path[..svg].to_vec());
+            }
+        }
+        // The pixels each drawing shows now, to find its box.
+        let mut old = Vec::new();
+        for d in &drawings {
+            match crate::svg::render(node_at(styled, d), &mut self.svg) {
+                Some(((px, _, _), _)) => old.push(px),
+                None => return false,
+            }
+        }
+        let mut boxes = Vec::new();
+        for px in &old {
+            let mut found = Vec::new();
+            find_image_boxes(layout, px, &mut Vec::new(), &mut found);
+            // Two identical drawings: which one changed is unclear.
+            if found.len() != 1 {
+                return false;
+            }
+            boxes.push(found.pop().unwrap());
+        }
+        for c in cmds {
+            if let js_engine::DomCommand::SetAttribute { id, name, value } = c {
+                let path = find_path(styled, id).expect("found above");
+                if let dom::NodeType::Element(d) = &mut node_at_mut(styled, &path).node_type {
+                    d.attributes.insert(name.clone(), value.clone());
+                }
+            }
+        }
+        for (d, b) in drawings.iter().zip(&boxes) {
+            let Some(((px, _, _), _)) = crate::svg::render(node_at(styled, d), &mut self.svg) else { return false };
+            let lb = layout_at_mut(layout, b);
+            if let layout::BoxContent::Image { data, .. } = &mut lb.content {
+                *data = px;
+            }
+            let r = crate::damage::own(lb);
+            paint::repaint(&mut self.pixels, self.page_w, self.page_h, layout, r);
+            self.damage.push(r);
+        }
+        true
+    }
+
     /// Styles, lays out and paints the whole page from the current DOM.
     fn render(&mut self) {
         let Some(document) = self.document.as_ref() else { return };
@@ -443,12 +524,65 @@ impl Page {
         phases.mark("paint");
         phases.report();
         self.layout = Some(layout_root);
+        self.styled = Some(styled.root);
         self.stats = Stats {
             node_count: count_nodes(&document.root),
             box_count: layout::count_boxes(self.layout.as_ref().unwrap()),
             content_width: total_width,
             content_height: total_height,
         };
+    }
+}
+
+fn is_tag(n: &css::StyledNode, tag: &str) -> bool {
+    matches!(&n.node_type, dom::NodeType::Element(d) if d.tag_name.eq_ignore_ascii_case(tag))
+}
+
+fn node_at<'a>(mut n: &'a css::StyledNode, path: &[usize]) -> &'a css::StyledNode {
+    for &i in path {
+        n = &n.children[i];
+    }
+    n
+}
+
+fn node_at_mut<'a>(mut n: &'a mut css::StyledNode, path: &[usize]) -> &'a mut css::StyledNode {
+    for &i in path {
+        n = &mut n.children[i];
+    }
+    n
+}
+
+fn layout_at_mut<'a>(mut b: &'a mut layout::LayoutBox, path: &[usize]) -> &'a mut layout::LayoutBox {
+    for &i in path {
+        b = &mut b.children[i];
+    }
+    b
+}
+
+/// Child-index path to the element with `id`.
+fn find_path(n: &css::StyledNode, id: &str) -> Option<Vec<usize>> {
+    if matches!(&n.node_type, dom::NodeType::Element(d) if d.attributes.get("id").map(String::as_str) == Some(id)) {
+        return Some(Vec::new());
+    }
+    n.children.iter().enumerate().find_map(|(i, c)| {
+        find_path(c, id).map(|mut p| {
+            p.insert(0, i);
+            p
+        })
+    })
+}
+
+/// Paths to the image boxes showing exactly `px`.
+fn find_image_boxes(b: &layout::LayoutBox, px: &[u8], path: &mut Vec<usize>, out: &mut Vec<Vec<usize>>) {
+    if let layout::BoxContent::Image { data, .. } = &b.content {
+        if data.len() == px.len() && data[..] == px[..] {
+            out.push(path.clone());
+        }
+    }
+    for (i, c) in b.children.iter().enumerate() {
+        path.push(i);
+        find_image_boxes(c, px, path, out);
+        path.pop();
     }
 }
 

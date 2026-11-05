@@ -406,29 +406,28 @@ pub fn execute_scripts(doc: &mut Document, js: &mut dyn JsHost, now_ms: f64) -> 
 /// Scripts are NOT re-executed — their state persists in window.* globals.
 ///
 /// Returns the number of commands produced.
-pub fn execute_onclick(doc: &mut Document, js: &mut dyn JsHost, onclick_code: &str, now_ms: f64) -> usize {
+pub fn execute_onclick(doc: &mut Document, js: &mut dyn JsHost, onclick_code: &str, now_ms: f64) -> Vec<DomCommand> {
     log::info!("js_engine: executing onclick ({} bytes)", onclick_code.len());
 
     let commands = run_on(js, onclick_code, now_ms);
     log::info!("js_engine: onclick produced {} command(s)", commands.len());
     apply_commands(doc, &commands);
-
-    commands.len()
+    commands
 }
 
 /// Runs the timers due at `now_ms` and applies their DOM commands.
 ///
-/// Returns the number of commands produced (0 means nothing to repaint).
-pub fn tick_timers(doc: &mut Document, js: &mut dyn JsHost, now_ms: f64) -> usize {
+/// Returns the commands (none: nothing to repaint).
+pub fn tick_timers(doc: &mut Document, js: &mut dyn JsHost, now_ms: f64) -> Vec<DomCommand> {
     let commands = match js.tick(now_ms) {
         Ok(json) => parse_commands(&json),
         Err(e) => {
             log::warn!("js_engine: timer: {}", e);
-            return 0;
+            return Vec::new();
         }
     };
     apply_commands(doc, &commands);
-    commands.len()
+    commands
 }
 
 /// Recursively remove `<script>` elements from the tree.

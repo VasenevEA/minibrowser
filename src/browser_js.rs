@@ -152,7 +152,7 @@ fn wrap_script(user_code: &str) -> String {
           var handlerId = '__mb_click_' + safeId;
           window[handlerId] = fn;
           window.__mb_handlers['click_' + this._id] = fn;
-          window.__mb_cmds.push({{ type: 'SetAttribute', id: this._id, name: 'onclick', value: handlerId + '()' }});
+          window.__mb_cmds.push({{ type: 'SetAttribute', id: this._id, name: 'onclick', value: handlerId + '(window.event)' }});
         }}
       }}
     }});

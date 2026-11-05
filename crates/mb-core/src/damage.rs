@@ -48,7 +48,7 @@ fn same_look(a: &LayoutBox, b: &LayoutBox) -> bool {
 
 /// The area a box paints itself: its border box, and for text a margin for
 /// glyphs that reach past the line box.
-fn own(b: &LayoutBox) -> Rect {
+pub(crate) fn own(b: &LayoutBox) -> Rect {
     let slack = match b.content {
         BoxContent::Text(_) | BoxContent::Image { .. } => (b.font_size * 0.5).ceil() + 1.0,
         _ => 1.0,
