@@ -5,6 +5,7 @@
 //! supply a [`js_engine::JsHost`].
 
 pub mod css;
+pub mod damage;
 pub mod dom;
 pub mod font;
 pub mod html_parser;

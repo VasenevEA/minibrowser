@@ -29,7 +29,7 @@ impl Color {
 }
 
 /// Edge sizes for margin / padding / border.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EdgeSizes {
     pub top: f32,
     pub right: f32,
@@ -113,6 +113,8 @@ pub struct LayoutBox {
     pub bold: bool,
     /// Per-side border colours (top, right, bottom, left) over `border_color`.
     pub border_side_colors: [Option<Color>; 4],
+    /// `overflow: hidden` (or clip/auto/scroll): content is clipped to the padding box.
+    pub overflow_hidden: bool,
     /// `box-sizing: border-box`: percentage sizes include padding and border.
     pub border_box: bool,
 }
@@ -191,6 +193,8 @@ pub struct StyledNode {
     pub bold: bool,
     /// Per-side border colours (top, right, bottom, left) over `border_color`.
     pub border_side_colors: [Option<Color>; 4],
+    /// `overflow: hidden` (or clip/auto/scroll): content is clipped to the padding box.
+    pub overflow_hidden: bool,
     /// `box-sizing: border-box`: percentage sizes include padding and border.
     pub border_box: bool,
     /// Flex container and item properties (used by the Taffy layout only).
@@ -369,6 +373,7 @@ impl StyledNode {
             grid_gap: 0.0,
             bold: false,
             border_side_colors: [None; 4],
+            overflow_hidden: false,
             border_box: false,
             flex: FlexProps::default(),
             grid: GridProps::default(),
@@ -411,6 +416,7 @@ impl StyledNode {
             grid_gap: 0.0,
             bold: false,
             border_side_colors: [None; 4],
+            overflow_hidden: false,
             border_box: false,
             flex: FlexProps::default(),
             grid: GridProps::default(),
@@ -501,6 +507,7 @@ pub(crate) fn build_layout_box(node: &StyledNode) -> LayoutBox {
             grid_gap: 0.0,
             bold: false,
             border_side_colors: [None; 4],
+            overflow_hidden: false,
             border_box: false,
         };
     }
@@ -563,6 +570,7 @@ pub(crate) fn build_layout_box(node: &StyledNode) -> LayoutBox {
         grid_gap: node.grid_gap,
         bold: node.bold,
         border_side_colors: node.border_side_colors,
+        overflow_hidden: node.overflow_hidden,
         border_box: node.border_box,
     }
 }

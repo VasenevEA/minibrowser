@@ -28,6 +28,9 @@ pub struct FontduFont {
     glyphs: std::sync::Mutex<std::collections::HashMap<(char, u32, bool), std::sync::Arc<(fontdue::Metrics, Vec<u8>)>>>,
 }
 
+/// A clip rectangle `[x0, y0, x1, y1)` that clips nothing.
+pub const NO_CLIP: [i32; 4] = [i32::MIN, i32::MIN, i32::MAX, i32::MAX];
+
 /// Glyph cache entries kept before it is emptied (a page uses far fewer).
 const GLYPH_CACHE_MAX: usize = 4096;
 
@@ -163,7 +166,7 @@ impl FontduFont {
         font_size: f32,
         color: [u8; 4],
     ) -> f32 {
-        self.draw_char_in(buf, stride, dest_x, dest_y, ch, font_size, color, false)
+        self.draw_char_in(buf, stride, dest_x, dest_y, ch, font_size, color, false, NO_CLIP)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -177,6 +180,7 @@ impl FontduFont {
         font_size: f32,
         color: [u8; 4],
         bold: bool,
+        clip: [i32; 4],
     ) -> f32 {
         let glyph = self.glyph(ch, font_size, bold);
         let (metrics, bitmap) = (&glyph.0, &glyph.1);
@@ -194,7 +198,7 @@ impl FontduFont {
                 }
                 let px = glyph_left + col as i32;
                 let py = glyph_top + row as i32;
-                if px < 0 || py < 0 || px >= stride as i32 {
+                if px < clip[0].max(0) || py < clip[1].max(0) || px >= clip[2].min(stride as i32) || py >= clip[3] {
                     continue;
                 }
                 let offset = ((py as u32 * stride + px as u32) * 4) as usize;
@@ -228,10 +232,10 @@ impl FontduFont {
         font_size: f32,
         color: [u8; 4],
     ) -> f32 {
-        self.draw_text_in(buf, stride, x, y, text, font_size, color, false)
+        self.draw_text_in(buf, stride, x, y, text, font_size, color, false, NO_CLIP)
     }
 
-    /// `draw_text` in the regular or bold face.
+    /// `draw_text` in the regular or bold face, inside `clip` (`[x0, y0, x1, y1)`).
     #[allow(clippy::too_many_arguments)]
     pub fn draw_text_in(
         &self,
@@ -243,10 +247,11 @@ impl FontduFont {
         font_size: f32,
         color: [u8; 4],
         bold: bool,
+        clip: [i32; 4],
     ) -> f32 {
         let mut cx = x as f32;
         for ch in text.chars() {
-            let advance = self.draw_char_in(buf, stride, cx as i32, y, ch, font_size, color, bold);
+            let advance = self.draw_char_in(buf, stride, cx as i32, y, ch, font_size, color, bold, clip);
             cx += advance;
         }
         cx - x as f32

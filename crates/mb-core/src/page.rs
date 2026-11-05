@@ -75,6 +75,8 @@ pub struct Page {
     layout: Option<layout::LayoutBox>,
     /// No doctype: lay out as browsers do in quirks mode.
     quirks: bool,
+    /// Page rectangles the last render repainted.
+    last_damage: Vec<crate::damage::Rect>,
 }
 
 impl Page {
@@ -98,12 +100,14 @@ impl Page {
             engine: LayoutEngine::default(),
             layout: None,
             quirks: false,
+            last_damage: Vec::new(),
         }
     }
 
     /// Parses `html`, runs its scripts on a fresh JS state and paints it.
     pub fn load(&mut self, html: &str) {
         self.js.reset();
+        self.layout = None; // a new page: no partial repaint against the old one
         self.quirks = is_quirks(html);
         let mut doc = html_parser::parse_html(html);
         let script_count = js_engine::execute_scripts(&mut doc, self.js.as_mut(), self.now_ms);
@@ -257,6 +261,13 @@ impl Page {
         (self.pixels.clone(), self.page_w, self.page_h)
     }
 
+    /// The box tree of the last render.
+    pub fn layout_tree(&self) -> Option<&layout::LayoutBox> { self.layout.as_ref() }
+
+    /// Page rectangles `[x0, y0, x1, y1)` the last render repainted (everything
+    /// after a full paint); frontends may copy just those.
+    pub fn last_damage(&self) -> &[crate::damage::Rect] { &self.last_damage }
+
     pub fn size(&self) -> (u32, u32) { (self.width, self.height) }
     pub fn scroll_pos(&self) -> (f32, f32) { (self.scroll_x, self.scroll_y) }
     pub fn stats(&self) -> Stats { self.stats }
@@ -353,9 +364,31 @@ impl Page {
         collect_hit_regions(&styled.root, &layout_root, &mut regions);
         self.hit_regions = regions;
 
-        self.page_w = (total_width as u32).max(self.width).min(4000);
-        self.page_h = (total_height as u32).min(8000).max(self.height);
-        self.pixels = paint::paint(&layout_root, self.page_w, self.page_h);
+        let page_w = (total_width as u32).max(self.width).min(4000);
+        let page_h = (total_height as u32).min(8000).max(self.height);
+        // Same page size and an earlier picture: repaint only what changed, unless
+        // that is most of the page anyway.
+        let partial = match &self.layout {
+            Some(old) if (page_w, page_h) == (self.page_w, self.page_h) && !self.pixels.is_empty() => {
+                let rects = crate::damage::damage(old, &layout_root);
+                (crate::damage::area(&rects) * 2 < page_w as i64 * page_h as i64).then_some(rects)
+            }
+            _ => None,
+        };
+        match partial {
+            Some(rects) => {
+                for r in &rects {
+                    paint::repaint(&mut self.pixels, page_w, page_h, &layout_root, *r);
+                }
+                self.last_damage = rects;
+            }
+            None => {
+                self.page_w = page_w;
+                self.page_h = page_h;
+                self.pixels = paint::paint(&layout_root, page_w, page_h);
+                self.last_damage = vec![[0, 0, page_w as i32, page_h as i32]];
+            }
+        }
         phases.mark("paint");
         phases.report();
         self.layout = Some(layout_root);
@@ -885,6 +918,7 @@ fn convert_styled(sn: &css::StyledNode, cx: &mut Cx) -> layout::StyledNode {
         offset_left: get_length("left", 0.0),
         grid_template_columns: parse_grid_template_columns(sn),
         grid_gap: get_length("grid-gap", get_length("gap", 0.0)),
+        overflow_hidden: matches!(get_str("overflow").as_str(), "hidden" | "clip" | "auto" | "scroll"),
         border_side_colors: ["top", "right", "bottom", "left"].map(|side| match sn.get(&format!("border-{side}-color")) {
             Some(CSSValue::Color(r, g, b, a)) => Some(layout::Color { r: *r, g: *g, b: *b, a: *a }),
             _ => None,

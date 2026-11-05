@@ -3,7 +3,7 @@
 //! Uses `tiny_skia` for rectangle fills and borders, and the built-in
 //! [`BitmapFont`](crate::font::BitmapFont) for text rendering.
 
-use tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, Transform};
+use tiny_skia::{FillRule, Mask, Paint, PathBuilder, Pixmap, PixmapMut, Transform};
 
 use crate::font::FontduFont;
 use crate::layout::{BoxContent, Color, LayoutBox, TextDecoration};
@@ -21,10 +21,62 @@ pub fn paint(layout_root: &LayoutBox, width: u32, height: u32) -> Vec<u8> {
     pixmap.fill(bg);
 
     let font = FontduFont::shared();
-
-    paint_box(&mut pixmap, layout_root, font);
+    let clip = Clip { x0: 0, y0: 0, x1: width as i32, y1: height as i32 };
+    paint_box(&mut pixmap.as_mut(), layout_root, font, clip);
 
     pixmap.take()
+}
+
+/// Repaints only `rect` (`[x0, y0, x1, y1)`) of an existing page buffer from the
+/// layout tree; everything outside it is left as it is.
+pub fn repaint(pixels: &mut [u8], width: u32, height: u32, layout_root: &LayoutBox, rect: [i32; 4]) {
+    let Some(mut pm) = PixmapMut::from_bytes(pixels, width, height) else { return };
+    let clip = Clip { x0: 0, y0: 0, x1: width as i32, y1: height as i32 }
+        .intersect(Clip { x0: rect[0], y0: rect[1], x1: rect[2], y1: rect[3] });
+    if clip.is_empty() {
+        return;
+    }
+    let bg = find_root_background(layout_root);
+    let mut paint = Paint::default();
+    paint.set_color(bg);
+    if let Some(r) = tiny_skia::Rect::from_ltrb(clip.x0 as f32, clip.y0 as f32, clip.x1 as f32, clip.y1 as f32) {
+        pm.fill_rect(r, &paint, Transform::identity(), None);
+    }
+    paint_box(&mut pm, layout_root, FontduFont::shared(), clip);
+}
+
+/// The pixel rectangle `[x0, y0, x1, y1)` drawing may touch.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Clip {
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+}
+
+impl Clip {
+    fn intersect(self, o: Clip) -> Clip {
+        Clip { x0: self.x0.max(o.x0), y0: self.y0.max(o.y0), x1: self.x1.min(o.x1), y1: self.y1.min(o.y1) }
+    }
+
+    fn is_empty(self) -> bool {
+        self.x0 >= self.x1 || self.y0 >= self.y1
+    }
+
+    fn arr(self) -> [i32; 4] {
+        [self.x0, self.y0, self.x1, self.y1]
+    }
+
+    /// Whether the clip covers the whole pixmap (no masking needed).
+    fn covers(self, pm: &PixmapMut) -> bool {
+        self.x0 <= 0 && self.y0 <= 0 && self.x1 >= pm.width() as i32 && self.y1 >= pm.height() as i32
+    }
+
+    /// Whether a box's subtree (approximated by `b`'s border box grown by
+    /// `slack`) could draw inside the clip.
+    fn touches(self, x: f32, y: f32, w: f32, h: f32) -> bool {
+        !(x + w < self.x0 as f32 || y + h < self.y0 as f32 || x > self.x1 as f32 || y > self.y1 as f32)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -51,20 +103,33 @@ fn find_root_background(root: &LayoutBox) -> tiny_skia::Color {
     search(root, 0).unwrap_or(tiny_skia::Color::WHITE)
 }
 
-fn paint_box(pixmap: &mut Pixmap, layout_box: &LayoutBox, font: &FontduFont) {
-    paint_background(pixmap, layout_box);
-    paint_borders(pixmap, layout_box);
-    paint_text(pixmap, layout_box, font);
-    paint_image(pixmap, layout_box, font);
+fn paint_box(pixmap: &mut PixmapMut, layout_box: &LayoutBox, font: &FontduFont, clip: Clip) {
+    if clip.is_empty() {
+        return;
+    }
+    paint_background(pixmap, layout_box, clip);
+    paint_borders(pixmap, layout_box, clip);
+    paint_text(pixmap, layout_box, font, clip);
+    paint_image(pixmap, layout_box, font, clip);
 
+    // overflow: hidden clips the content to the padding box.
+    let inner = if layout_box.overflow_hidden {
+        let x = layout_box.x + layout_box.margin.left + layout_box.border.left;
+        let y = layout_box.y + layout_box.margin.top + layout_box.border.top;
+        let w = layout_box.padding.left + layout_box.width + layout_box.padding.right;
+        let h = layout_box.padding.top + layout_box.height + layout_box.padding.bottom;
+        clip.intersect(Clip { x0: x.floor() as i32, y0: y.floor() as i32, x1: (x + w).ceil() as i32, y1: (y + h).ceil() as i32 })
+    } else {
+        clip
+    };
     for child in &layout_box.children {
-        paint_box(pixmap, child, font);
+        paint_box(pixmap, child, font, inner);
     }
 }
 
 // -- background -------------------------------------------------------------
 
-fn paint_background(pixmap: &mut Pixmap, layout_box: &LayoutBox) {
+fn paint_background(pixmap: &mut PixmapMut, layout_box: &LayoutBox, clip: Clip) {
     let color = match layout_box.background_color {
         Some(c) if c.a > 0 => c,
         _ => return,
@@ -83,12 +148,12 @@ fn paint_background(pixmap: &mut Pixmap, layout_box: &LayoutBox) {
         + layout_box.padding.bottom
         + layout_box.border.bottom;
 
-    fill_rect(pixmap, x, y, w, h, color, layout_box.border_radius);
+    fill_rect(pixmap, x, y, w, h, color, layout_box.border_radius, clip);
 }
 
 // -- borders ----------------------------------------------------------------
 
-fn paint_borders(pixmap: &mut Pixmap, layout_box: &LayoutBox) {
+fn paint_borders(pixmap: &mut PixmapMut, layout_box: &LayoutBox, clip: Clip) {
     let b = &layout_box.border;
     if b.top == 0.0 && b.right == 0.0 && b.bottom == 0.0 && b.left == 0.0 {
         return;
@@ -113,29 +178,34 @@ fn paint_borders(pixmap: &mut Pixmap, layout_box: &LayoutBox) {
     let side = |i: usize| layout_box.border_side_colors[i].unwrap_or(color);
     // Top border
     if b.top > 0.0 {
-        fill_rect(pixmap, bx, by, outer_w, b.top, side(0), 0.0);
+        fill_rect(pixmap, bx, by, outer_w, b.top, side(0), 0.0, clip);
     }
     // Bottom border
     if b.bottom > 0.0 {
-        fill_rect(pixmap, bx, by + outer_h - b.bottom, outer_w, b.bottom, side(2), 0.0);
+        fill_rect(pixmap, bx, by + outer_h - b.bottom, outer_w, b.bottom, side(2), 0.0, clip);
     }
     // Left border
     if b.left > 0.0 {
-        fill_rect(pixmap, bx, by, b.left, outer_h, side(3), 0.0);
+        fill_rect(pixmap, bx, by, b.left, outer_h, side(3), 0.0, clip);
     }
     // Right border
     if b.right > 0.0 {
-        fill_rect(pixmap, bx + outer_w - b.right, by, b.right, outer_h, side(1), 0.0);
+        fill_rect(pixmap, bx + outer_w - b.right, by, b.right, outer_h, side(1), 0.0, clip);
     }
 }
 
 // -- text -------------------------------------------------------------------
 
-fn paint_text(pixmap: &mut Pixmap, layout_box: &LayoutBox, font: &FontduFont) {
+fn paint_text(pixmap: &mut PixmapMut, layout_box: &LayoutBox, font: &FontduFont, clip: Clip) {
     let text = match &layout_box.content {
         BoxContent::Text(s) => s,
         _ => return,
     };
+    // Glyphs reach a little past the line box (descenders, italics, overhang).
+    let slack = layout_box.font_size * 0.5;
+    if !clip.touches(layout_box.x - slack, layout_box.y - slack, layout_box.margin_box_width() + 2.0 * slack, layout_box.margin_box_height() + 2.0 * slack) {
+        return;
+    }
 
     let color = layout_box.text_color;
 
@@ -220,17 +290,17 @@ fn paint_text(pixmap: &mut Pixmap, layout_box: &LayoutBox, font: &FontduFont) {
 
         let draw_y = line_top.round() as i32 + glyph_dy;
         let baseline_y = (line_top + baseline).round() as i32;
-        font.draw_text_in(data, w, draw_x, draw_y, &line_text, font_size, rgba, bold);
+        font.draw_text_in(data, w, draw_x, draw_y, &line_text, font_size, rgba, bold, clip.arr());
 
         // Draw text-decoration lines
         match layout_box.text_decoration {
             TextDecoration::Underline => {
                 let line_y = baseline_y + (font_size * 0.1).max(1.0) as i32;
-                draw_horizontal_line(data, w, draw_x, line_y, line_pixel_width as i32, rgba);
+                draw_horizontal_line(data, w, draw_x, line_y, line_pixel_width as i32, rgba, clip);
             }
             TextDecoration::LineThrough => {
                 let line_y = baseline_y - (font_size * 0.3) as i32;
-                draw_horizontal_line(data, w, draw_x, line_y, line_pixel_width as i32, rgba);
+                draw_horizontal_line(data, w, draw_x, line_y, line_pixel_width as i32, rgba, clip);
             }
             TextDecoration::None => {}
         }
@@ -240,13 +310,16 @@ fn paint_text(pixmap: &mut Pixmap, layout_box: &LayoutBox, font: &FontduFont) {
 }
 
 /// Draw a 1px horizontal line into the pixel buffer.
-fn draw_horizontal_line(data: &mut [u8], buf_width: u32, x: i32, y: i32, length: i32, rgba: [u8; 4]) {
-    if y < 0 || length <= 0 {
+fn draw_horizontal_line(data: &mut [u8], buf_width: u32, x: i32, y: i32, length: i32, rgba: [u8; 4], clip: Clip) {
+    if y < 0 || length <= 0 || y < clip.y0 || y >= clip.y1 {
         return;
     }
     let y = y as u32;
     let bw = buf_width;
     for dx in 0..length {
+        if x + dx < clip.x0 || x + dx >= clip.x1 {
+            continue;
+        }
         let px = (x + dx) as u32;
         if px < bw {
             let idx = ((y * bw + px) * 4) as usize;
@@ -262,7 +335,7 @@ fn draw_horizontal_line(data: &mut [u8], buf_width: u32, x: i32, y: i32, length:
 
 // -- image ------------------------------------------------------------------
 
-fn paint_image(pixmap: &mut Pixmap, layout_box: &LayoutBox, font: &FontduFont) {
+fn paint_image(pixmap: &mut PixmapMut, layout_box: &LayoutBox, font: &FontduFont, clip: Clip) {
     let (alt, img_data, intrinsic_w, intrinsic_h) = match &layout_box.content {
         BoxContent::Image { alt, data, intrinsic_w, intrinsic_h } => {
             (alt.as_str(), data, *intrinsic_w, *intrinsic_h)
@@ -288,7 +361,7 @@ fn paint_image(pixmap: &mut Pixmap, layout_box: &LayoutBox, font: &FontduFont) {
             for dx in 0..dst_w {
                 let px = cx as u32 + dx;
                 let py = cy as u32 + dy;
-                if px >= pw || py >= ph {
+                if px >= pw || py >= ph || (px as i32) < clip.x0 || (px as i32) >= clip.x1 || (py as i32) < clip.y0 || (py as i32) >= clip.y1 {
                     continue;
                 }
 
@@ -332,25 +405,33 @@ fn paint_image(pixmap: &mut Pixmap, layout_box: &LayoutBox, font: &FontduFont) {
         let glyph_dy = (font.baseline_in_line(font_size, font.line_metrics(font_size).2) - font_size * 0.8).round() as i32;
         let pw = pixmap.width();
         let data = pixmap.data_mut();
-        font.draw_text_in(data, pw, cx as i32, cy as i32 + glyph_dy, alt, font_size, rgba, layout_box.bold);
+        font.draw_text_in(data, pw, cx as i32, cy as i32 + glyph_dy, alt, font_size, rgba, layout_box.bold, clip.arr());
     }
 }
 
 // -- helpers ----------------------------------------------------------------
 
 /// Fill an axis-aligned rectangle using `tiny_skia`, with optional rounded corners.
-fn fill_rect(pixmap: &mut Pixmap, x: f32, y: f32, w: f32, h: f32, color: Color, border_radius: f32) {
-    if w <= 0.0 || h <= 0.0 {
+#[allow(clippy::too_many_arguments)]
+fn fill_rect(pixmap: &mut PixmapMut, x: f32, y: f32, w: f32, h: f32, color: Color, border_radius: f32, clip: Clip) {
+    if w <= 0.0 || h <= 0.0 || !clip.touches(x, y, w, h) {
         return;
     }
 
     let r = border_radius.min(w / 2.0).min(h / 2.0);
-    if r <= 0.0 {
+    // A clip that misses all four corner squares sees a plain rectangle.
+    let misses_corners = || {
+        let c = |cx: f32, cy: f32| clip.touches(cx, cy, r, r);
+        !(c(x, y) || c(x + w - r, y) || c(x, y + h - r) || c(x + w - r, y + h - r))
+    };
+    if r <= 0.0 || misses_corners() {
         // Square corners: tiny-skia's rectangle fast path, no path rasterizing.
         let mut paint = Paint::default();
         paint.set_color_rgba8(color.r, color.g, color.b, color.a);
         paint.anti_alias = false;
-        if let Some(rect) = tiny_skia::Rect::from_xywh(x, y, w, h) {
+        let (x0, y0) = (x.max(clip.x0 as f32), y.max(clip.y0 as f32));
+        let (x1, y1) = ((x + w).min(clip.x1 as f32), (y + h).min(clip.y1 as f32));
+        if let Some(rect) = tiny_skia::Rect::from_ltrb(x0, y0, x1, y1) {
             pixmap.fill_rect(rect, &paint, Transform::identity(), None);
         }
         return;
@@ -384,12 +465,23 @@ fn fill_rect(pixmap: &mut Pixmap, x: f32, y: f32, w: f32, h: f32, color: Color, 
     // Rounded corners look like browsers' only when antialiased.
     paint.anti_alias = true;
 
+    // A rounded box cut by the clip: mask the path fill to the clip rectangle.
+    let inside = x >= clip.x0 as f32 && y >= clip.y0 as f32 && x + w <= clip.x1 as f32 && y + h <= clip.y1 as f32;
+    let mask = if inside || clip.covers(pixmap) {
+        None
+    } else {
+        let mut m = Mask::new(pixmap.width(), pixmap.height());
+        if let (Some(m), Some(r)) = (m.as_mut(), tiny_skia::Rect::from_ltrb(clip.x0 as f32, clip.y0 as f32, clip.x1 as f32, clip.y1 as f32)) {
+            m.fill_path(&PathBuilder::from_rect(r), FillRule::Winding, false, Transform::identity());
+        }
+        m
+    };
     pixmap.fill_path(
         &path,
         &paint,
         FillRule::Winding,
         Transform::identity(),
-        None,
+        mask.as_ref(),
     );
 }
 

@@ -146,6 +146,43 @@ mod tests {
     }
 
     #[test]
+    fn partial_repaint_matches_full_paint() {
+        let html = r#"<html><body style="background:#123">
+          <div style="display:flex;gap:8px"><div id="a" style="color:#fff;font-size:20px">0</div>
+          <div id="b" style="background:#345;border-radius:6px;padding:4px">x</div></div>
+          <div id="list" style="height:40px;overflow:hidden"></div>
+          <div style="text-align:center"><span id="c">idle</span></div>
+          <script>
+            var n = 0;
+            setInterval(function () {
+              n++;
+              document.getElementById('a').textContent = 'n=' + n;
+              document.getElementById('b').style.backgroundColor = n % 2 ? '#a33' : '#3a3';
+              document.getElementById('list').innerHTML = '<div>row ' + n + '</div><div>row</div><div>row</div><div>row</div>';
+              if (n == 3) document.getElementById('c').textContent = 'busy, much longer text';
+            }, 100);
+          </script></body></html>"#;
+        let mut page = Page::new(Box::new(QuickJs::new()), 320, 200);
+        page.load(html);
+        let mut partial = 0;
+        for i in 1..=5 {
+            assert!(page.tick(i as f64 * 100.0));
+            let (w, h) = page.size();
+            let (px, pw, ph) = page.full_page();
+            assert_eq!((pw, ph), (w, h));
+            if page.last_damage().len() != 1 || page.last_damage()[0] != [0, 0, w as i32, h as i32] {
+                partial += 1;
+            }
+            let full = mb_core::paint::paint(page.layout_tree().unwrap(), pw, ph);
+            // Antialiased rounded corners drawn through a clip mask may differ by a
+            // level or two; anything more is a damage-tracking bug.
+            let worst = px.iter().zip(&full).map(|(a, b)| a.abs_diff(*b)).max().unwrap_or(0);
+            assert!(worst <= 2, "tick {i}: partial repaint differs from a full paint by up to {worst}");
+        }
+        assert!(partial > 0, "no tick was repainted partially");
+    }
+
+    #[test]
     fn interval_fires_on_tick_only_when_due() {
         let mut js = QuickJs::new();
         js.run_at0("var k = 0; setInterval(function(){ k++; document.getElementById('a').textContent = k; }, 100);").unwrap();

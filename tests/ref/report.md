@@ -15,12 +15,12 @@
 | demo19-form | 96.59% |
 | demo2 | 97.53% |
 | demo20-responsive | 99.11% |
-| demo21-panel | 93.44% |
+| demo21-panel | 93.89% |
 | demo3 | 88.93% |
 | demo4-js | 85.08% |
-| demo5-js-clock | 84.66% |
+| demo5-js-clock | 87.64% |
 | demo6-js-counter | 93.08% |
 | demo7-js-todo | 97.19% |
-| demo8-js-hmi | 92.65% |
+| demo8-js-hmi | 92.77% |
 | demo9-interactive | 88.38% |
-| **average** | **92.07%** |
+| **average** | **92.24%** |
