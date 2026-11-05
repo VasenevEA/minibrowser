@@ -8,7 +8,7 @@
 | demo12-images | 74.29% |
 | demo13-grid | 91.69% |
 | demo14-position | 90.09% |
-| demo15-canvas2d | 78.53% |
+| demo15-canvas2d | 88.48% |
 | demo16-landing | 97.95% |
 | demo17-dashboard | 93.74% |
 | demo18-article | 95.79% |
@@ -17,9 +17,9 @@
 | demo20-responsive | 98.88% |
 | demo3 | 88.38% |
 | demo4-js | 83.94% |
-| demo5-js-clock | 87.21% |
+| demo5-js-clock | 88.06% |
 | demo6-js-counter | 92.42% |
 | demo7-js-todo | 97.14% |
-| demo8-js-hmi | 92.64% |
+| demo8-js-hmi | 92.65% |
 | demo9-interactive | 88.26% |
-| **average** | **91.30%** |
+| **average** | **91.84%** |

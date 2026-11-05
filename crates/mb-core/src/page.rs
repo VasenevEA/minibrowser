@@ -911,7 +911,24 @@ fn convert_styled(sn: &css::StyledNode, cx: &mut Cx) -> layout::StyledNode {
             f
         },
         content,
-        children: laid_out_children(sn).map(|c| convert_styled(c, cx)).collect(),
+        children: {
+            let mut kids: Vec<layout::StyledNode> = laid_out_children(sn).map(|c| convert_styled(c, cx)).collect();
+            // White space at the start and end of a block's (or button's) content
+            // is at a line edge, where CSS removes it.
+            let starts_lines = match &sn.node_type {
+                dom::NodeType::Element(d) => sn.display() != "inline" || matches!(d.tag_name.as_str(), "button" | "select"),
+                _ => false,
+            };
+            if starts_lines {
+                if let Some(layout::StyledNode { content: layout::NodeContent::Text(t), .. }) = kids.first_mut() {
+                    *t = t.trim_start().to_string();
+                }
+                if let Some(layout::StyledNode { content: layout::NodeContent::Text(t), .. }) = kids.last_mut() {
+                    *t = t.trim_end().to_string();
+                }
+            }
+            kids
+        },
     }
 }
 
