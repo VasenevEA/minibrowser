@@ -167,7 +167,8 @@ fn left_align(b: &mut LayoutBox) {
 /// The rightmost edge of everything inside `b` (absolute x).
 fn extent(b: &LayoutBox) -> f32 {
     let own = match b.content {
-        BoxContent::Text(_) | BoxContent::Image { .. } => b.x + b.margin_box_width() - b.margin.right,
+        // An inline box's padding and border count too (a button's right padding).
+        BoxContent::Text(_) | BoxContent::Image { .. } | BoxContent::Inline => b.x + b.margin_box_width(),
         _ => b.content_x(),
     };
     b.children.iter().map(extent).fold(own, f32::max)
