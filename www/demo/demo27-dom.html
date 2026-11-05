@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  body { margin: 0; background: #0f172a; color: #e2e8f0; font: 15px sans-serif; }
+  header { padding: 10px 16px; background: #1e293b; display: flex; justify-content: space-between; }
+  h1 { margin: 0; font-size: 18px; color: #7dd3fc; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 14px 16px; }
+  .tile { background: #1e293b; border: 2px solid #334155; border-radius: 10px; padding: 10px; height: 64px; }
+  .tile b { display: block; font-size: 22px; margin-top: 6px; }
+  .tile.on { border-color: #22c55e; background: #14532d; }
+  .tile.alarm { border-color: #ef4444; background: #450a0a; }
+  #log { margin: 0 16px; padding: 8px 12px; background: #020617; border-radius: 8px; height: 120px; overflow: hidden; font: 13px monospace; color: #94a3b8; }
+  #log div:first-child { color: #fde68a; }
+  .bar { display: flex; gap: 8px; padding: 10px 16px; }
+  button { background: #334155; color: #e2e8f0; border: 0; border-radius: 6px; padding: 8px 14px; font-size: 14px; }
+  #count { color: #fde68a; }
+</style></head>
+<body>
+<header><h1>Живой DOM: createElement, classList, события</h1><span id="count">0 плиток</span></header>
+<div class="grid" id="grid"></div>
+<div class="bar">
+  <button id="add">+ плитка</button>
+  <button id="all">вкл. все</button>
+  <button id="alarm" data-level="2">тревога</button>
+  <button id="clear">очистить</button>
+</div>
+<div id="log"></div>
+<script>
+  const grid = document.querySelector('#grid');
+  const log = document.getElementById('log');
+  const names = ['Насос', 'Клапан', 'Котёл', 'Вентилятор', 'Горелка', 'Дымосос', 'Задвижка', 'Датчик'];
+  let n = 0;
+  function say(msg) {
+    const line = document.createElement('div');
+    line.textContent = String(n).padStart(2, '0') + ' ' + msg;
+    log.insertBefore(line, log.firstChild);
+    while (log.children.length > 6) log.lastElementChild.remove();
+  }
+  function count() {
+    const on = grid.querySelectorAll('.tile.on').length;
+    document.getElementById('count').textContent = grid.children.length + ' плиток, вкл. ' + on;
+  }
+  function addTile() {
+    const t = document.createElement('div');
+    t.className = 'tile';
+    t.dataset.idx = n;
+    t.innerHTML = names[n % names.length] + '<b>' + (20 + n * 3) + '</b>';
+    grid.appendChild(t);
+    n++;
+    say('добавлена «' + names[(n - 1) % names.length] + '»');
+    count();
+  }
+  // One listener on the grid for every tile (event delegation).
+  grid.addEventListener('click', function (e) {
+    const t = e.target.closest('.tile');
+    if (!t) return;
+    const on = t.classList.toggle('on');
+    say('плитка ' + t.dataset.idx + (on ? ' включена' : ' выключена'));
+    count();
+  });
+  document.getElementById('add').addEventListener('click', addTile);
+  document.getElementById('all').onclick = function () {
+    grid.querySelectorAll('.tile').forEach(function (t) { t.classList.add('on'); t.classList.remove('alarm'); });
+    say('все включены'); count();
+  };
+  document.getElementById('alarm').addEventListener('click', function (e) {
+    const tiles = grid.querySelectorAll('.tile');
+    if (tiles.length) tiles[tiles.length - 1].classList.add('alarm');
+    say('тревога, уровень ' + e.currentTarget.dataset.level);
+  });
+  document.getElementById('clear').addEventListener('click', function () {
+    while (grid.firstChild) grid.removeChild(grid.firstChild);
+    say('очищено'); count();
+  });
+  document.addEventListener('DOMContentLoaded', function () {
+    for (let i = 0; i < 6; i++) addTile();
+    grid.children[1].classList.add('on');
+    grid.children[4].classList.add('on');
+    count();
+    say('готово, ' + document.querySelectorAll('button').length + ' кнопок');
+  });
+</script>
+</body></html>

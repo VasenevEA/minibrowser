@@ -66,6 +66,16 @@ fn collect_scripts(node: &Node, out: &mut Vec<String>) {
 // JS host
 // ---------------------------------------------------------------------------
 
+/// A live document scripts query and change synchronously (Blitz's DOM),
+/// instead of queuing commands against elements by id. `call` runs one DOM
+/// operation: `op` with JSON `args`, answering JSON (see mb-qjs `dom-live.js`
+/// for the operations).
+pub trait Dom {
+    fn call(&mut self, op: &str, args: &[serde_json::Value]) -> serde_json::Value;
+}
+
+pub type SharedDom = std::rc::Rc<std::cell::RefCell<dyn Dom>>;
+
 /// The JavaScript engine a page runs on. Each host installs its own DOM glue and
 /// answers with the DOM commands the code produced, as a JSON array of
 /// `{type: "SetTextById", ...}` objects (see `parse_commands`).
@@ -88,6 +98,12 @@ pub trait JsHost {
     /// (`[{id, text, attrs}]` as JSON), so reads like `textContent` and
     /// `classList.contains` see the document. Hosts that cannot use it ignore it.
     fn seed(&mut self, _elements_json: &str) {}
+
+    /// Scripts work on this live document from now on (and after `reset`).
+    /// Returns false if the host cannot (it keeps its by-id elements).
+    fn set_dom(&mut self, _dom: SharedDom) -> bool {
+        false
+    }
 
     /// Binary data a script handed over in its last run (`blob` in a command).
     fn take_blob(&mut self, _handle: u32) -> Option<Vec<u8>> {

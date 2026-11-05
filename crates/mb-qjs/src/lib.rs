@@ -8,10 +8,13 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use mb_core::js_engine::SharedDom;
 use mb_core::JsHost;
 use rquickjs::{CatchResultExt, Context, Function, Runtime};
 
 const DOM_JS: &str = include_str!("dom.js");
+/// The DOM on a live document (`set_dom`), over dom.js's by-id elements.
+const DOM_LIVE_JS: &str = include_str!("dom-live.js");
 
 pub struct QuickJs {
     rt: Runtime,
@@ -20,6 +23,8 @@ pub struct QuickJs {
     base: Option<PathBuf>,
     /// Binary data scripts hand over (putImageData pixels), by handle - 1.
     blobs: Blobs,
+    /// The live document, if the engine has one (Blitz).
+    dom: Option<SharedDom>,
 }
 
 type Blobs = Rc<RefCell<Vec<Vec<u8>>>>;
@@ -27,8 +32,8 @@ type Blobs = Rc<RefCell<Vec<Vec<u8>>>>;
 impl QuickJs {
     pub fn new() -> Self {
         let blobs = Blobs::default();
-        let (rt, ctx) = fresh(None, blobs.clone());
-        QuickJs { rt, ctx, base: None, blobs }
+        let (rt, ctx) = fresh(None, blobs.clone(), None);
+        QuickJs { rt, ctx, base: None, blobs, dom: None }
     }
 
     /// A host whose `fetch` reads files: relative URLs from `base` (the page's
@@ -37,8 +42,8 @@ impl QuickJs {
     pub fn with_files(base: &Path) -> Self {
         let base = Some(base.to_path_buf());
         let blobs = Blobs::default();
-        let (rt, ctx) = fresh(base.clone(), blobs.clone());
-        QuickJs { rt, ctx, base, blobs }
+        let (rt, ctx) = fresh(base.clone(), blobs.clone(), None);
+        QuickJs { rt, ctx, base, blobs, dom: None }
     }
 
     /// Evaluates `code` and returns the commands it queued. If it threw, the commands
@@ -90,7 +95,7 @@ where
     f
 }
 
-fn fresh(base: Option<PathBuf>, blobs: Blobs) -> (Runtime, Context) {
+fn fresh(base: Option<PathBuf>, blobs: Blobs, dom: Option<SharedDom>) -> (Runtime, Context) {
     let rt = Runtime::new().expect("QuickJS runtime");
     // A page must not take the panel down with it.
     // Big enough for a game compiled to JS (Doom: ~40 MB with its heap).
@@ -126,6 +131,21 @@ fn fresh(base: Option<PathBuf>, blobs: Blobs) -> (Runtime, Context) {
             let _ = ctx.globals().set("__mb_blob", blob);
         }
         ctx.eval::<(), _>(DOM_JS).catch(&ctx).map_err(|e| e.to_string()).expect("dom.js");
+        if let Some(dom) = dom {
+            // __mb_dom(op, argsJson) → resultJson: one call into the live document.
+            let call = Function::new(ctx.clone(), move |op: String, args: String| -> String {
+                let args: Vec<serde_json::Value> = serde_json::from_str(&args).unwrap_or_default();
+                // A script running inside a DOM call (none do) would find it borrowed.
+                match dom.try_borrow_mut() {
+                    Ok(mut d) => d.call(&op, &args).to_string(),
+                    Err(_) => "null".into(),
+                }
+            });
+            if let Ok(call) = call {
+                let _ = ctx.globals().set("__mb_dom", call);
+            }
+            ctx.eval::<(), _>(DOM_LIVE_JS).catch(&ctx).map_err(|e| e.to_string()).expect("dom-live.js");
+        }
     });
     (rt, ctx)
 }
@@ -133,7 +153,7 @@ fn fresh(base: Option<PathBuf>, blobs: Blobs) -> (Runtime, Context) {
 impl JsHost for QuickJs {
     fn reset(&mut self) {
         self.blobs.borrow_mut().clear();
-        let (rt, ctx) = fresh(self.base.clone(), self.blobs.clone());
+        let (rt, ctx) = fresh(self.base.clone(), self.blobs.clone(), self.dom.clone());
         // Drop the old context before its runtime.
         self.ctx = ctx;
         self.rt = rt;
@@ -152,6 +172,12 @@ impl JsHost for QuickJs {
             let d: f64 = ctx.eval(format!("__mb_next({})", now_ms)).ok()?;
             (d >= 0.0).then_some(d)
         })
+    }
+
+    fn set_dom(&mut self, dom: SharedDom) -> bool {
+        self.dom = Some(dom);
+        self.reset();
+        true
     }
 
     fn take_blob(&mut self, handle: u32) -> Option<Vec<u8>> {

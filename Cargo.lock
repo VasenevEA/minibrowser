@@ -2835,6 +2835,7 @@ dependencies = [
  "log",
  "mb-core",
  "rquickjs",
+ "serde_json",
 ]
 
 [[package]]

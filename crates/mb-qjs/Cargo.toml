@@ -6,6 +6,7 @@ description = "MiniBrowser JsHost on QuickJS, for native builds."
 license = "MIT"
 
 [dependencies]
+serde_json = "1"
 mb-core = { path = "../mb-core" }
 log = "0.4"
 rquickjs = "0.9"

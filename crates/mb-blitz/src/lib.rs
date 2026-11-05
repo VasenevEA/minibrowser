@@ -6,8 +6,11 @@
 //! painted scene is recorded and compared with the last one: only the rect
 //! around the commands that changed is painted again.
 
+pub mod dom;
 pub mod scene;
 
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use anyrender::recording::{RenderCommand, Scene};
@@ -45,7 +48,12 @@ fn fonts() -> parley::FontContext {
 
 pub struct BlitzPage {
     js: Box<dyn JsHost>,
-    doc: HtmlDocument,
+    /// Shared with the scripts' live DOM (`dom::BlitzDom`).
+    doc: Rc<RefCell<HtmlDocument>>,
+    /// Scripts changed the live DOM since the last frame.
+    changed: Rc<Cell<bool>>,
+    /// The JS host works on the live DOM (else on by-id elements and commands).
+    live: bool,
     width: u32,
     height: u32,
     now_ms: f64,
@@ -62,10 +70,17 @@ pub struct BlitzPage {
 }
 
 impl BlitzPage {
-    pub fn new(js: Box<dyn JsHost>, width: u32, height: u32) -> Self {
+    pub fn new(mut js: Box<dyn JsHost>, width: u32, height: u32) -> Self {
+        let doc = Rc::new(RefCell::new(HtmlDocument::from_html("", Self::config(width, height))));
+        let changed = Rc::new(Cell::new(false));
+        // MB_DOM=ids keeps the old by-id elements, to compare.
+        let live = std::env::var("MB_DOM").map_or(true, |v| v != "ids")
+            && js.set_dom(Rc::new(RefCell::new(dom::BlitzDom { doc: doc.clone(), changed: changed.clone() })));
         Self {
             js,
-            doc: HtmlDocument::from_html("", Self::config(width, height)),
+            doc,
+            changed,
+            live,
             width,
             height,
             now_ms: 0.0,
@@ -87,12 +102,19 @@ impl BlitzPage {
     }
 
     pub fn load(&mut self, html: &str) {
+        // The new document first: a live DOM host reads it as it resets.
+        *self.doc.borrow_mut() = HtmlDocument::from_html(html, Self::config(self.width, self.height));
         self.js.reset();
-        self.doc = HtmlDocument::from_html(html, Self::config(self.width, self.height));
         self.last.clear();
-        self.seed_js();
+        if !self.live {
+            self.seed_js();
+        }
         for code in self.scripts() {
             let cmds = run(self.js.as_mut(), &code, self.now_ms);
+            self.apply(&cmds);
+        }
+        if self.live {
+            let cmds = run(self.js.as_mut(), "__mb_loaded()", self.now_ms);
             self.apply(&cmds);
         }
         self.dirty = true;
@@ -119,33 +141,47 @@ impl BlitzPage {
         self.js.next_timer(now_ms)
     }
 
-    /// A tap at viewport coordinates: runs the onclick of the element there or
-    /// of its nearest ancestor that has one. Returns true if it repainted.
+    /// A tap at viewport coordinates. On the live DOM: a click event on the
+    /// element there, bubbling. Otherwise: the onclick of the element there
+    /// or its nearest ancestor that has one. Returns true if it repainted.
     pub fn click(&mut self, x: f32, y: f32) -> bool {
-        let Some(hit) = self.doc.element_from_point(x, y) else { return false };
-        let mut at = Some(hit);
-        let mut handler = None;
-        while let Some(id) = at {
-            let Some(node) = self.doc.get_node(id) else { break };
-            if let Some(code) = node.attr(local_name!("onclick")) {
-                handler = Some((id, code.to_string()));
-                break;
+        let code = {
+            let doc = self.doc.borrow();
+            let Some(hit) = doc.element_from_point(x, y) else { return false };
+            let offset = |id| {
+                doc.get_node(id).map(|n| {
+                    let p = n.absolute_position(0.0, 0.0);
+                    (x - p.x, y - p.y)
+                }).unwrap_or((0.0, 0.0))
+            };
+            if self.live {
+                let (ox, oy) = offset(hit);
+                format!(
+                    "__mb_dispatch({}, 'click', {{clientX: {x}, clientY: {y}, pageX: {x}, pageY: {y}, offsetX: {ox}, offsetY: {oy}}})",
+                    hit.as_u64()
+                )
+            } else {
+                let mut at = Some(hit);
+                let mut handler = None;
+                while let Some(id) = at {
+                    let Some(node) = doc.get_node(id) else { break };
+                    if let Some(code) = node.attr(local_name!("onclick")) {
+                        handler = Some((id, code.to_string()));
+                        break;
+                    }
+                    at = node.parent;
+                }
+                let Some((id, code)) = handler else { return false };
+                let (ox, oy) = offset(id);
+                format!(
+                    "window.event = {{type: 'click', clientX: {x}, clientY: {y}, pageX: {x}, pageY: {y}, offsetX: {ox}, offsetY: {oy}, \
+                     preventDefault: function () {{}}, stopPropagation: function () {{}}}};\n{code}"
+                )
             }
-            at = node.parent;
-        }
-        let Some((id, code)) = handler else { return false };
-        let (ox, oy) = self.doc.get_node(id).map(|n| {
-            let p = n.absolute_position(0.0, 0.0);
-            (x - p.x, y - p.y)
-        }).unwrap_or((0.0, 0.0));
-        let code = format!(
-            "window.event = {{type: 'click', clientX: {x}, clientY: {y}, pageX: {x}, pageY: {y}, offsetX: {ox}, offsetY: {oy}, \
-             preventDefault: function () {{}}, stopPropagation: function () {{}}}};\n{code}"
-        );
+        };
         let cmds = run(self.js.as_mut(), &code, self.now_ms);
         self.apply(&cmds);
-        self.render();
-        true
+        self.render()
     }
 
     /// The page's pixels, RGBA, width x height.
@@ -166,19 +202,20 @@ impl BlitzPage {
     }
 
     pub fn node_count(&self) -> usize {
-        self.doc.tree().len()
+        self.doc.borrow().tree().len()
     }
 
-    pub fn document(&self) -> &HtmlDocument {
-        &self.doc
+    pub fn document(&self) -> std::cell::Ref<'_, HtmlDocument> {
+        self.doc.borrow()
     }
 
     /// Scripts in document order; an external one as `__mb_include(src)`.
     fn scripts(&self) -> Vec<String> {
+        let doc = self.doc.borrow();
         let mut out = Vec::new();
-        let mut stack = vec![self.doc.root_node().id];
+        let mut stack = vec![doc.root_node().id];
         while let Some(id) = stack.pop() {
-            let Some(node) = self.doc.get_node(id) else { continue };
+            let Some(node) = doc.get_node(id) else { continue };
             if node.element_data().is_some_and(|e| e.name.local == local_name!("script")) {
                 match node.attr(local_name!("src")).map(str::trim).filter(|s| !s.is_empty()) {
                     Some(src) => out.push(format!("__mb_include({})", js_string(src))),
@@ -199,7 +236,8 @@ impl BlitzPage {
     /// Hands the JS host every element with an id: its text and attributes.
     fn seed_js(&mut self) {
         let mut out = Vec::new();
-        for (_, node) in self.doc.tree().iter() {
+        let doc = self.doc.borrow();
+        for (_, node) in doc.tree().iter() {
             let Some(el) = node.element_data() else { continue };
             let Some(id) = el.id.as_ref() else { continue };
             let attrs: serde_json::Map<String, serde_json::Value> =
@@ -216,8 +254,9 @@ impl BlitzPage {
         for cmd in cmds {
             match cmd {
                 DomCommand::SetTextById { id, text } => {
-                    let Some(node) = self.doc.get_element_by_id(id) else { continue };
-                    let mut m = self.doc.mutate();
+                    let mut doc = self.doc.borrow_mut();
+                    let Some(node) = doc.get_element_by_id(id) else { continue };
+                    let mut m = doc.mutate();
                     let kids = m.child_ids(node);
                     // One text child: change it in place (cheaper restyle).
                     if kids.len() == 1 && m.element_name(kids[0]).is_none() {
@@ -229,8 +268,9 @@ impl BlitzPage {
                     }
                 }
                 DomCommand::SetStyleById { id, property, value } => {
-                    let Some(node) = self.doc.get_element_by_id(id) else { continue };
-                    let mut m = self.doc.mutate();
+                    let mut doc = self.doc.borrow_mut();
+                    let Some(node) = doc.get_element_by_id(id) else { continue };
+                    let mut m = doc.mutate();
                     if value.is_empty() {
                         m.remove_style_property(node, property);
                     } else {
@@ -238,20 +278,23 @@ impl BlitzPage {
                     }
                 }
                 DomCommand::SetAttribute { id, name, value } => {
-                    let Some(node) = self.doc.get_element_by_id(id) else { continue };
-                    let mut m = self.doc.mutate();
+                    let mut doc = self.doc.borrow_mut();
+                    let Some(node) = doc.get_element_by_id(id) else { continue };
+                    let mut m = doc.mutate();
                     m.set_attribute(node, QualName::new(None, ns!(), LocalName::from(name.as_str())), value);
                 }
                 DomCommand::SetInnerHtmlById { id, html } => {
-                    let Some(node) = self.doc.get_element_by_id(id) else { continue };
-                    let mut m = self.doc.mutate();
+                    let mut doc = self.doc.borrow_mut();
+                    let Some(node) = doc.get_element_by_id(id) else { continue };
+                    let mut m = doc.mutate();
                     m.remove_and_drop_all_children(node);
                     DocumentHtmlParser::parse_inner_html_into_mutator(&mut m, node, html);
                     seed = true;
                 }
                 DomCommand::CreateElement { tag, parent_id } => {
-                    let Some(parent) = self.doc.get_element_by_id(parent_id) else { continue };
-                    let mut m = self.doc.mutate();
+                    let mut doc = self.doc.borrow_mut();
+                    let Some(parent) = doc.get_element_by_id(parent_id) else { continue };
+                    let mut m = doc.mutate();
                     let el = m.create_element(QualName::new(None, ns!(html), LocalName::from(tag.as_str())), Vec::new());
                     m.append_children(parent, &[el]);
                 }
@@ -268,15 +311,18 @@ impl BlitzPage {
 
     /// Styles, layout and paint of what changed. Returns true if pixels changed.
     pub fn render(&mut self) -> bool {
-        if !self.dirty {
+        if !self.dirty && !self.changed.get() {
             return false;
         }
         self.dirty = false;
+        self.changed.set(false);
+        let mut doc = self.doc.borrow_mut();
         let t = std::time::Instant::now();
-        self.doc.resolve(self.now_ms);
+        doc.resolve(self.now_ms);
         let t_resolve = t.elapsed();
         let mut rec = Scene::new();
-        blitz_paint::paint_scene(&mut rec, &mut self.doc, 1.0, self.width, self.height, 0, 0);
+        blitz_paint::paint_scene(&mut rec, &mut doc, 1.0, self.width, self.height, 0, 0);
+        drop(doc);
         let t_record = t.elapsed();
         let full = Rect::new(0.0, 0.0, self.width as f64, self.height as f64);
         let changed = if self.last.is_empty() { vec![full] } else { changed_rects(&self.last, &rec.commands) };
