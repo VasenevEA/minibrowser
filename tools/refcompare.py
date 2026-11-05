@@ -2,7 +2,7 @@
 """Compares MiniBrowser with Chrome, page by page: the progress meter.
 
 For every page: Chrome (headless) renders a reference at the viewport size with
-the same DejaVu Sans font MiniBrowser embeds, mb-headless renders ours, and the
+the same DejaVu Sans faces MiniBrowser embeds, mb-headless renders ours, and the
 score is the share of pixels whose colour differs by less than a small
 tolerance. Writes the three images per page and report.md to tests/ref/.
 
@@ -18,6 +18,7 @@ OUT = os.path.join(ROOT, "tests", "ref")
 CHROME = os.environ.get("CHROME", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
 HEADLESS = os.path.join(ROOT, "target", "release", "mb-headless")
 FONT = os.path.join(ROOT, "crates", "mb-core", "assets", "DejaVuSans.ttf")
+FONT_BOLD = os.path.join(ROOT, "crates", "mb-core", "assets", "DejaVuSans-Bold.ttf")
 W, H = map(int, os.environ.get("MB_SIZE", "800x480").split("x"))
 TOL = 24  # per-channel difference still counted as equal (antialiasing)
 SHIFT = 2  # pixels a feature may be off and still count
@@ -25,8 +26,9 @@ SHIFT = 2  # pixels a feature may be off and still count
 
 def chrome(page, out):
     html = open(page, encoding="utf-8").read()
-    font = ("<style>@font-face{font-family:MBDejaVu;src:url('file://%s')}"
-            "html,body,*{font-family:MBDejaVu !important}</style>" % FONT)
+    font = ("<style>@font-face{font-family:MBDejaVu;font-weight:400;src:url('file://%s')}"
+            "@font-face{font-family:MBDejaVu;font-weight:700;src:url('file://%s')}"
+            "html,body,*{font-family:MBDejaVu !important}</style>" % (FONT, FONT_BOLD))
     # After the doctype, if any: a <style> before it would put Chrome in quirks mode.
     m = re.match(r"\s*<!doctype[^>]*>", html, re.I)
     at = m.end() if m else 0

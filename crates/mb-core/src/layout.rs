@@ -109,6 +109,8 @@ pub struct LayoutBox {
     pub offset_left: f32,
     pub grid_template_columns: Vec<GridTrack>,
     pub grid_gap: f32,
+    /// `font-weight` 600 and up: text uses the bold face.
+    pub bold: bool,
     /// `box-sizing: border-box`: percentage sizes include padding and border.
     pub border_box: bool,
 }
@@ -183,12 +185,25 @@ pub struct StyledNode {
     pub offset_left: f32,
     pub grid_template_columns: Vec<GridTrack>,
     pub grid_gap: f32,
+    /// `font-weight` 600 and up: text uses the bold face.
+    pub bold: bool,
     /// `box-sizing: border-box`: percentage sizes include padding and border.
     pub border_box: bool,
     /// Flex container and item properties (used by the Taffy layout only).
     pub flex: FlexProps,
+    /// Grid properties as written in CSS (used by the Taffy layout only).
+    pub grid: GridProps,
     pub content: NodeContent,
     pub children: Vec<StyledNode>,
+}
+
+/// `grid-template-columns`, `grid-template-rows`, `grid-column`, `grid-row`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct GridProps {
+    pub columns: String,
+    pub rows: String,
+    pub column: String,
+    pub row: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -344,8 +359,10 @@ impl StyledNode {
             offset_left: 0.0,
             grid_template_columns: Vec::new(),
             grid_gap: 0.0,
+            bold: false,
             border_box: false,
             flex: FlexProps::default(),
+            grid: GridProps::default(),
             content: NodeContent::Text(s.to_string()),
             children: Vec::new(),
         }
@@ -380,8 +397,10 @@ impl StyledNode {
             offset_left: 0.0,
             grid_template_columns: Vec::new(),
             grid_gap: 0.0,
+            bold: false,
             border_box: false,
             flex: FlexProps::default(),
+            grid: GridProps::default(),
             content: NodeContent::Element,
             children,
         }
@@ -394,13 +413,13 @@ impl StyledNode {
 
 /// Approximate width of a single character at the given font size.
 /// Use fontdue for accurate text measurement (matching paint module).
-fn measure_text_width(text: &str, font_size: f32) -> f32 {
-    crate::font::FontduFont::shared().measure_text(text, font_size).0
+fn measure_text_width(text: &str, font_size: f32, bold: bool) -> f32 {
+    crate::font::FontduFont::shared().measure_text_in(text, font_size, bold)
 }
 
 /// Single character width via fontdue.
 fn estimated_char_width(font_size: f32) -> f32 {
-    measure_text_width("M", font_size)
+    measure_text_width("M", font_size, false)
 }
 
 // ---------------------------------------------------------------------------
@@ -464,6 +483,7 @@ pub(crate) fn build_layout_box(node: &StyledNode) -> LayoutBox {
             offset_left: 0.0,
             grid_template_columns: Vec::new(),
             grid_gap: 0.0,
+            bold: false,
             border_box: false,
         };
     }
@@ -524,6 +544,7 @@ pub(crate) fn build_layout_box(node: &StyledNode) -> LayoutBox {
         offset_left: node.offset_left,
         grid_template_columns: node.grid_template_columns.clone(),
         grid_gap: node.grid_gap,
+        bold: node.bold,
         border_box: node.border_box,
     }
 }
@@ -706,7 +727,7 @@ impl LayoutBox {
             // so that inline siblings are properly separated (e.g. "with <b>bold</b>")
             if let BoxContent::Text(ref s) = child.content {
                 if s.starts_with(|c: char| c.is_whitespace()) && cursor_x > content_x {
-                    cursor_x += measure_text_width(" ", child.font_size);
+                    cursor_x += measure_text_width(" ", child.font_size, child.bold);
                 }
             }
 
@@ -719,11 +740,11 @@ impl LayoutBox {
                     if words.is_empty() {
                         0.0
                     } else {
-                        let space_w = measure_text_width(" ", child.font_size);
+                        let space_w = measure_text_width(" ", child.font_size, child.bold);
                         let mut w: f32 = 0.0;
                         for (i, word) in words.iter().enumerate() {
                             if i > 0 { w += space_w; }
-                            w += measure_text_width(word, child.font_size);
+                            w += measure_text_width(word, child.font_size, child.bold);
                         }
                         if s.ends_with(|c: char| c.is_whitespace()) {
                             w += space_w;
@@ -851,7 +872,7 @@ impl LayoutBox {
             } else {
                 match &child.content {
                     BoxContent::Text(s) => {
-                        measure_text_width(s, child.font_size) + child_horiz
+                        measure_text_width(s, child.font_size, child.bold) + child_horiz
                     }
                     BoxContent::Inline => {
                         // Inline children in flex: content width + horizontal extras
@@ -1261,7 +1282,7 @@ impl LayoutBox {
         for child in &self.children {
             total += match &child.content {
                 BoxContent::Text(s) => {
-                    measure_text_width(s, child.font_size)
+                    measure_text_width(s, child.font_size, child.bold)
                         + child.margin.left + child.margin.right
                         + child.padding.left + child.padding.right
                         + child.border.left + child.border.right
@@ -1320,7 +1341,7 @@ impl LayoutBox {
         let mut current_line_width: f32 = 0.0;
         let mut max_line_width: f32 = 0.0;
         let mut line_count: u32 = 1;
-        let space_width = measure_text_width(" ", font_size);
+        let space_width = measure_text_width(" ", font_size, self.bold);
 
         // Preserve trailing whitespace for inline flow:
         // when text ends with space, add it after the last word so the
@@ -1328,7 +1349,7 @@ impl LayoutBox {
         let has_trailing_space = text.ends_with(|c: char| c.is_whitespace());
 
         for (i, word) in words.iter().enumerate() {
-            let word_width = measure_text_width(word, font_size);
+            let word_width = measure_text_width(word, font_size, self.bold);
 
             let needed = if i == 0 || current_line_width == 0.0 {
                 word_width
@@ -1457,7 +1478,7 @@ impl LayoutBox {
     fn measure_subtree_content_width(node: &LayoutBox) -> f32 {
         match &node.content {
             BoxContent::Text(s) => {
-                measure_text_width(s, node.font_size)
+                measure_text_width(s, node.font_size, node.bold)
                     + node.padding.left + node.padding.right
                     + node.border.left + node.border.right
             }

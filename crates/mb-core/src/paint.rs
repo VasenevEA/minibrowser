@@ -166,7 +166,8 @@ fn paint_text(pixmap: &mut Pixmap, layout_box: &LayoutBox, font: &FontduFont) {
         return;
     }
 
-    let space_w = font.measure_char(' ', font_size).0;
+    let bold = layout_box.bold;
+    let space_w = font.measure_text_in(" ", font_size, bold);
 
     // Build lines for word wrapping (matching layout logic)
     let effective_max_width = if layout_box.white_space_nowrap { f32::MAX } else { max_width };
@@ -175,7 +176,7 @@ fn paint_text(pixmap: &mut Pixmap, layout_box: &LayoutBox, font: &FontduFont) {
     let mut current_line_width: f32 = 0.0;
 
     for word in &words {
-        let word_width = font.measure_text(word, font_size).0;
+        let word_width = font.measure_text_in(word, font_size, bold);
         let needed = if current_line_width == 0.0 {
             word_width
         } else {
@@ -202,7 +203,7 @@ fn paint_text(pixmap: &mut Pixmap, layout_box: &LayoutBox, font: &FontduFont) {
     let mut line_top = cy;
     for line_words in &lines {
         let line_text = line_words.join(" ");
-        let line_pixel_width = font.measure_text(&line_text, font_size).0;
+        let line_pixel_width = font.measure_text_in(&line_text, font_size, bold);
 
         // Apply text-align
         let draw_x = match layout_box.text_align {
@@ -218,7 +219,7 @@ fn paint_text(pixmap: &mut Pixmap, layout_box: &LayoutBox, font: &FontduFont) {
 
         let draw_y = line_top.round() as i32 + glyph_dy;
         let baseline_y = (line_top + baseline).round() as i32;
-        font.draw_text(data, w, draw_x, draw_y, &line_text, font_size, rgba);
+        font.draw_text_in(data, w, draw_x, draw_y, &line_text, font_size, rgba, bold);
 
         // Draw text-decoration lines
         match layout_box.text_decoration {

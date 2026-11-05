@@ -827,7 +827,19 @@ fn convert_styled(sn: &css::StyledNode, cx: &mut Cx) -> layout::StyledNode {
         offset_left: get_length("left", 0.0),
         grid_template_columns: parse_grid_template_columns(sn),
         grid_gap: get_length("grid-gap", get_length("gap", 0.0)),
+        bold: match sn.get("font-weight") {
+            Some(CSSValue::Keyword(k)) => matches!(k.as_str(), "bold" | "bolder")
+                || k.parse::<f32>().map_or(false, |w| w >= 600.0),
+            Some(CSSValue::Number(w)) => *w >= 600.0,
+            _ => false,
+        },
         border_box: is_border_box,
+        grid: layout::GridProps {
+            columns: get_str("grid-template-columns"),
+            rows: get_str("grid-template-rows"),
+            column: get_str("grid-column"),
+            row: get_str("grid-row"),
+        },
         flex: {
             let mut f = layout::FlexProps::default();
             f.direction = match get_str("flex-direction").as_str() {

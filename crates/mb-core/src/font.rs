@@ -8,6 +8,7 @@ use fontdue;
 /// Embedded TTF font data.
 static TTF_SANS: &[u8] = include_bytes!("../assets/DejaVuSans-hmi.ttf");
 static TTF_MONO: &[u8] = include_bytes!("../assets/DejaVuSansMono-hmi.ttf");
+static TTF_BOLD: &[u8] = include_bytes!("../assets/DejaVuSans-Bold-hmi.ttf");
 
 // ---------------------------------------------------------------------------
 // FontduFont — TTF-based font rendering via fontdue (dual-font: sans + mono)
@@ -20,6 +21,8 @@ pub struct FontduFont {
     /// Parsed on first use: nothing draws monospace text yet, and fontdue keeps
     /// every glyph outline of a parsed font in memory.
     mono: std::sync::OnceLock<fontdue::Font>,
+    /// Bold sans, parsed on first bold text for the same reason.
+    bold: std::sync::OnceLock<fontdue::Font>,
 }
 
 impl FontduFont {
@@ -30,7 +33,7 @@ impl FontduFont {
             fontdue::FontSettings::default(),
         )
         .expect("failed to parse embedded TTF sans font");
-        FontduFont { sans, mono: std::sync::OnceLock::new() }
+        FontduFont { sans, mono: std::sync::OnceLock::new(), bold: std::sync::OnceLock::new() }
     }
 
     /// Vertical metrics at `font_size`: (ascent, descent, normal line height), as
@@ -59,6 +62,23 @@ impl FontduFont {
     /// Get the active font reference. Default is sans (proportional).
     fn font(&self) -> &fontdue::Font {
         &self.sans
+    }
+
+    /// The sans face for `font-weight` bold (600 and up) or regular.
+    pub fn face(&self, bold: bool) -> &fontdue::Font {
+        if !bold {
+            return &self.sans;
+        }
+        self.bold.get_or_init(|| {
+            fontdue::Font::from_bytes(TTF_BOLD, fontdue::FontSettings::default())
+                .expect("failed to parse embedded TTF bold font")
+        })
+    }
+
+    /// Width of `text` in the regular or bold face.
+    pub fn measure_text_in(&self, text: &str, font_size: f32, bold: bool) -> f32 {
+        let face = self.face(bold);
+        text.chars().map(|ch| face.metrics(ch, font_size).advance_width).sum()
     }
 
     /// Get the mono font reference (for code/pre elements).
@@ -107,8 +127,24 @@ impl FontduFont {
         font_size: f32,
         color: [u8; 4],
     ) -> f32 {
-        let (metrics, bitmap) = self.font().rasterize(ch, font_size);
-        let m = self.font().metrics(ch, font_size);
+        self.draw_char_in(buf, stride, dest_x, dest_y, ch, font_size, color, false)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_char_in(
+        &self,
+        buf: &mut [u8],
+        stride: u32,
+        dest_x: i32,
+        dest_y: i32,
+        ch: char,
+        font_size: f32,
+        color: [u8; 4],
+        bold: bool,
+    ) -> f32 {
+        let face = self.face(bold);
+        let (metrics, bitmap) = face.rasterize(ch, font_size);
+        let m = face.metrics(ch, font_size);
 
         // ymin is the offset from the baseline to the top of the glyph bitmap
         let glyph_top = dest_y + (font_size * 0.8) as i32 - metrics.height as i32 - m.ymin as i32;
@@ -156,9 +192,25 @@ impl FontduFont {
         font_size: f32,
         color: [u8; 4],
     ) -> f32 {
+        self.draw_text_in(buf, stride, x, y, text, font_size, color, false)
+    }
+
+    /// `draw_text` in the regular or bold face.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_text_in(
+        &self,
+        buf: &mut [u8],
+        stride: u32,
+        x: i32,
+        y: i32,
+        text: &str,
+        font_size: f32,
+        color: [u8; 4],
+        bold: bool,
+    ) -> f32 {
         let mut cx = x as f32;
         for ch in text.chars() {
-            let advance = self.draw_char(buf, stride, cx as i32, y, ch, font_size, color);
+            let advance = self.draw_char_in(buf, stride, cx as i32, y, ch, font_size, color, bold);
             cx += advance;
         }
         cx - x as f32

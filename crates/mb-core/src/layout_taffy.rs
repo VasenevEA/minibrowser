@@ -322,14 +322,107 @@ fn style_of(n: &StyledNode, root: bool) -> Style {
         flex_grow: f.grow,
         flex_shrink: f.shrink,
         flex_basis: dim(f.basis),
-        grid_template_columns: n
-            .grid_template_columns
-            .iter()
-            .map(|t| match t {
-                layout::GridTrack::Fr(v) => fr(*v),
-                layout::GridTrack::Px(v) => length(*v),
-            })
-            .collect(),
+        grid_template_columns: parse_tracks(&n.grid.columns),
+        grid_template_rows: parse_tracks(&n.grid.rows),
+        grid_column: parse_line(&n.grid.column),
+        grid_row: parse_line(&n.grid.row),
         ..Default::default()
+    }
+}
+
+/// Splits on top-level whitespace and commas, keeping `f(a, b)` together.
+fn split_top(s: &str, sep: fn(char) -> bool) -> Vec<String> {
+    let (mut out, mut cur, mut depth) = (Vec::new(), String::new(), 0);
+    for c in s.chars() {
+        match c {
+            '(' => { depth += 1; cur.push(c); }
+            ')' => { depth -= 1; cur.push(c); }
+            c if depth == 0 && sep(c) => {
+                if !cur.trim().is_empty() { out.push(cur.trim().to_string()); }
+                cur.clear();
+            }
+            c => cur.push(c),
+        }
+    }
+    if !cur.trim().is_empty() { out.push(cur.trim().to_string()); }
+    out
+}
+
+/// One track size: `1fr`, `200px`, `25%`, `auto`, `min-content`, `max-content`, `minmax(a, b)`.
+fn parse_track(t: &str) -> Option<TrackSizingFunction> {
+    let t = t.trim();
+    if let Some(args) = t.strip_prefix("minmax(").and_then(|r| r.strip_suffix(')')) {
+        let parts = split_top(args, |c| c == ',');
+        let (lo, hi) = (parts.first()?, parts.get(1)?);
+        let min: MinTrackSizingFunction = match lo.as_str() {
+            "auto" => auto(),
+            "min-content" => min_content(),
+            "max-content" => max_content(),
+            v => num(v, "px").map(length).or_else(|| num(v, "%").map(|p| percent(p / 100.0)))?,
+        };
+        let max: MaxTrackSizingFunction = match hi.as_str() {
+            "auto" => auto(),
+            "min-content" => min_content(),
+            "max-content" => max_content(),
+            v => num(v, "fr").map(fr).or_else(|| num(v, "px").map(length)).or_else(|| num(v, "%").map(|p| percent(p / 100.0)))?,
+        };
+        return Some(minmax(min, max));
+    }
+    Some(match t {
+        "auto" => auto(),
+        "min-content" => min_content(),
+        "max-content" => max_content(),
+        v => num(v, "fr").map(fr).or_else(|| num(v, "px").map(length)).or_else(|| num(v, "%").map(|p| percent(p / 100.0)))
+            .or_else(|| v.parse::<f32>().ok().map(length))?,
+    })
+}
+
+fn num(v: &str, unit: &str) -> Option<f32> {
+    v.strip_suffix(unit)?.trim().parse().ok()
+}
+
+/// `grid-template-columns`/`-rows`: track sizes and `repeat(n | auto-fill | auto-fit, ...)`.
+fn parse_tracks(s: &str) -> Vec<GridTemplateComponent<String>> {
+    let mut out = Vec::new();
+    for item in split_top(s, char::is_whitespace) {
+        if let Some(args) = item.strip_prefix("repeat(").and_then(|r| r.strip_suffix(')')) {
+            let parts = split_top(args, |c| c == ',');
+            let Some(count) = parts.first() else { continue };
+            let tracks: Vec<TrackSizingFunction> = parts[1..].iter()
+                .flat_map(|p| split_top(p, char::is_whitespace))
+                .filter_map(|t| parse_track(&t))
+                .collect();
+            match count.as_str() {
+                "auto-fill" => out.push(repeat(taffy::RepetitionCount::AutoFill, tracks)),
+                "auto-fit" => out.push(repeat(taffy::RepetitionCount::AutoFit, tracks)),
+                n => {
+                    for _ in 0..n.parse::<usize>().unwrap_or(1).min(64) {
+                        out.extend(tracks.iter().map(|t| GridTemplateComponent::Single(*t)));
+                    }
+                }
+            }
+        } else if let Some(t) = parse_track(&item) {
+            out.push(GridTemplateComponent::Single(t));
+        }
+    }
+    out
+}
+
+/// `grid-column`/`grid-row`: `span 2`, `1 / 3`, `2 / span 2`, `1 / -1`, `3`.
+fn parse_line(s: &str) -> Line<GridPlacement<String>> {
+    fn one(p: &str) -> GridPlacement<String> {
+        let p = p.trim();
+        if let Some(n) = p.strip_prefix("span").and_then(|n| n.trim().parse::<u16>().ok()) {
+            return span(n);
+        }
+        match p.parse::<i16>() {
+            Ok(n) if n != 0 => line(n),
+            _ => GridPlacement::Auto,
+        }
+    }
+    match s.split_once('/') {
+        Some((a, b)) => Line { start: one(a), end: one(b) },
+        None if s.trim().is_empty() => Line { start: GridPlacement::Auto, end: GridPlacement::Auto },
+        None => Line { start: one(s), end: GridPlacement::Auto },
     }
 }
