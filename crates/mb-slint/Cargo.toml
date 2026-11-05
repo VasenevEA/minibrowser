@@ -9,16 +9,25 @@ license = "MIT"
 mb-core = { path = "../mb-core" }
 mb-qjs = { path = "../mb-qjs" }
 mb-blitz = { path = "../mb-blitz", optional = true }
+mb-fb = { path = "../mb-fb", default-features = false, optional = true }
+# Panels have no fontconfig: look it up at run time (Slint's own Inter, or
+# SLINT_DEFAULT_FONT, when it is missing).
+i-slint-common = { version = "=1.18.1", features = ["fontconfig-dlopen"], optional = true }
 slint = { version = "1.18", default-features = false, features = ["std", "compat-1-18"] }
 
 [features]
 default = ["desktop"]
 # A window on the desktop (winit, software renderer).
 desktop = ["slint/backend-winit", "slint/renderer-software"]
-# A panel without a window manager: Slint's linuxkms backend, software renderer.
-kms = ["slint/backend-linuxkms-noseat", "slint/renderer-software"]
+# A panel without a window system: Slint's software renderer on mb-fb's
+# screen and touch (mb_slint::panel).
+panel = ["dep:mb-fb", "mb-fb/kms", "dep:i-slint-common", "slint/renderer-software"]
 # Pages on Blitz (Stylo + Taffy + Parley) instead of mb-core's engine.
 blitz = ["dep:mb-blitz"]
 
 [dev-dependencies]
 png = "0.17"
+
+[[example]]
+name = "panel"
+required-features = ["panel"]

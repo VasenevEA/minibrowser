@@ -6,6 +6,9 @@
 //! `frame`, and the page then runs on a Slint timer (scripts, animation) and
 //! takes taps through [`HtmlView::tap`] (wire the element's `tapped` to it).
 
+#[cfg(feature = "panel")]
+pub mod panel;
+
 use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;

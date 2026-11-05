@@ -4,8 +4,8 @@ import { Button } from "std-widgets.slint";
 
 export component App inherits Window {
     title: "MiniBrowser in Slint";
-    width: 800px;
-    height: 540px;
+    preferred-width: 800px;
+    preferred-height: 540px;
     background: #0b1020;
     in property <image> page-frame;
     in property <string> status: "";
@@ -35,8 +35,7 @@ export component App inherits Window {
             }
         }
         HtmlView {
-            width: 800px;
-            height: 480px;
+            vertical-stretch: 1;
             frame: root.page-frame;
             tapped(x, y) => { root.page-tapped(x, y); }
         }
