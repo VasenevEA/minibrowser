@@ -5,7 +5,8 @@
 //! Scripts run on QuickJS; taps become clicks, timers fire on time, and the
 //! framebuffer is only written when the page changed. The page file is watched
 //! and reloaded when it changes, so a new version can simply be copied over it.
-//! MB_TOUCH takes "swap", "invx", "invy" for a panel mounted the other way.
+//! MB_TOUCH takes "swap", "invx", "invy" for a panel mounted the other way;
+//! MB_TRACE=1 logs each frame's timings; MB_LAYOUT=builtin picks the old layout.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -165,6 +166,8 @@ fn main() {
         std::process::exit(2);
     };
     let probe = args.iter().any(|a| a == "--probe-touch");
+    // MB_TRACE=1 logs every frame's timings.
+    let trace = std::env::var_os("MB_TRACE").is_some();
 
     let mut fb = Fb::open(&arg(&args, "--fb", "/dev/fb0"));
     let (w, h) = fb.size();
@@ -213,12 +216,15 @@ fn main() {
             }
         }
         let t = Instant::now();
-        if page.tick(now_ms()) {
-            dirty = true;
-            log::debug!("timers {:.0} ms", ms(t));
-        }
+        let ticked = page.tick(now_ms());
+        let t_tick = ms(t);
+        dirty |= ticked;
         if dirty {
+            let t = Instant::now();
             fb.present(&page.viewport(), w);
+            if trace {
+                eprintln!("frame: timers+layout+paint {t_tick:.0} ms, present {:.0} ms", ms(t));
+            }
         }
     }
 }

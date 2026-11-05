@@ -23,7 +23,13 @@ pub struct FontduFont {
     mono: std::sync::OnceLock<fontdue::Font>,
     /// Bold sans, parsed on first bold text for the same reason.
     bold: std::sync::OnceLock<fontdue::Font>,
+    /// Rasterized glyphs by (char, size in 1/8 px, bold): a repaint redraws the
+    /// same few dozen glyphs, and rasterizing them is most of a T113 frame.
+    glyphs: std::sync::Mutex<std::collections::HashMap<(char, u32, bool), std::sync::Arc<(fontdue::Metrics, Vec<u8>)>>>,
 }
+
+/// Glyph cache entries kept before it is emptied (a page uses far fewer).
+const GLYPH_CACHE_MAX: usize = 4096;
 
 impl FontduFont {
     /// Create a new FontduFont with both embedded fonts.
@@ -33,7 +39,12 @@ impl FontduFont {
             fontdue::FontSettings::default(),
         )
         .expect("failed to parse embedded TTF sans font");
-        FontduFont { sans, mono: std::sync::OnceLock::new(), bold: std::sync::OnceLock::new() }
+        FontduFont {
+            sans,
+            mono: std::sync::OnceLock::new(),
+            bold: std::sync::OnceLock::new(),
+            glyphs: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
     }
 
     /// Vertical metrics at `font_size`: (ascent, descent, normal line height), as
@@ -75,10 +86,35 @@ impl FontduFont {
         })
     }
 
+    /// The rasterized glyph, from the cache when it has been drawn before.
+    fn glyph(&self, ch: char, font_size: f32, bold: bool) -> std::sync::Arc<(fontdue::Metrics, Vec<u8>)> {
+        let key = (ch, (font_size * 8.0).round() as u32, bold);
+        let mut cache = self.glyphs.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(g) = cache.get(&key) {
+            return g.clone();
+        }
+        if cache.len() >= GLYPH_CACHE_MAX {
+            cache.clear();
+        }
+        let g = std::sync::Arc::new(self.face_for(ch, bold).rasterize(ch, font_size));
+        cache.insert(key, g.clone());
+        g
+    }
+
+    /// The face that draws `ch`: bold when asked for and it has the glyph (the
+    /// bold subset is smaller), regular otherwise.
+    fn face_for(&self, ch: char, bold: bool) -> &fontdue::Font {
+        let face = self.face(bold);
+        if bold && face.lookup_glyph_index(ch) == 0 {
+            &self.sans
+        } else {
+            face
+        }
+    }
+
     /// Width of `text` in the regular or bold face.
     pub fn measure_text_in(&self, text: &str, font_size: f32, bold: bool) -> f32 {
-        let face = self.face(bold);
-        text.chars().map(|ch| face.metrics(ch, font_size).advance_width).sum()
+        text.chars().map(|ch| self.face_for(ch, bold).metrics(ch, font_size).advance_width).sum()
     }
 
     /// Get the mono font reference (for code/pre elements).
@@ -142,9 +178,9 @@ impl FontduFont {
         color: [u8; 4],
         bold: bool,
     ) -> f32 {
-        let face = self.face(bold);
-        let (metrics, bitmap) = face.rasterize(ch, font_size);
-        let m = face.metrics(ch, font_size);
+        let glyph = self.glyph(ch, font_size, bold);
+        let (metrics, bitmap) = (&glyph.0, &glyph.1);
+        let m = metrics;
 
         // ymin is the offset from the baseline to the top of the glyph bitmap
         let glyph_top = dest_y + (font_size * 0.8) as i32 - metrics.height as i32 - m.ymin as i32;
