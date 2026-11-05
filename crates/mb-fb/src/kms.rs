@@ -38,6 +38,8 @@ pub struct Kms {
     /// What the last frame changed: the back buffer is a frame behind, so it
     /// gets those rectangles too.
     last: Vec<[i32; 4]>,
+    /// A flip was queued and has not been reported done.
+    flipping: bool,
 }
 
 impl Kms {
@@ -73,7 +75,24 @@ impl Kms {
         };
         let buffers = [make()?, make()?];
         card.set_crtc(crtc, Some(buffers[0].fb), (0, 0), &[con.handle()], Some(mode))?;
-        Ok(Kms { card, crtc, size, buffers, back: 1, last: Vec::new() })
+        Ok(Kms { card, crtc, size, buffers, back: 1, last: Vec::new(), flipping: false })
+    }
+}
+
+impl Kms {
+    fn wait_flip(&mut self) {
+        while self.flipping {
+            match self.card.receive_events() {
+                Ok(events) => {
+                    for e in events {
+                        if let Event::PageFlip(_) = e {
+                            self.flipping = false;
+                        }
+                    }
+                }
+                Err(_) => self.flipping = false,
+            }
+        }
     }
 }
 
@@ -85,6 +104,9 @@ impl Screen for Kms {
     fn present(&mut self, rgba: &[u8], w: u32, rects: &[[i32; 4]]) {
         let (sx, sy) = (w.min(self.size.0) as i32, (self.size.1 as usize).min(rgba.len() / (w as usize * 4)) as i32);
         let src_line = w as usize * 4;
+        // The back buffer was on screen until the last flip completed (by now,
+        // usually: the page was drawn meanwhile).
+        self.wait_flip();
         let buf = &mut self.buffers[self.back];
         for r in rects.iter().chain(&self.last) {
             let (x0, y0, x1, y1) = (r[0].max(0), r[1].max(0), r[2].min(sx), r[3].min(sy));
@@ -100,16 +122,7 @@ impl Screen for Kms {
                 }
             }
         }
-        if self.card.page_flip(self.crtc, buf.fb, PageFlipFlags::EVENT, None).is_ok() {
-            // Wait for the flip: the buffer now on screen must not be drawn into.
-            'wait: while let Ok(events) = self.card.receive_events() {
-                for e in events {
-                    if let Event::PageFlip(_) = e {
-                        break 'wait;
-                    }
-                }
-            }
-        }
+        self.flipping = self.card.page_flip(self.crtc, buf.fb, PageFlipFlags::EVENT, None).is_ok();
         self.back ^= 1;
         self.last = rects.to_vec();
     }
