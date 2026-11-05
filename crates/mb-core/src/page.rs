@@ -1381,6 +1381,7 @@ fn convert_styled(sn: &css::StyledNode, cx: &mut Cx) -> layout::StyledNode {
             Some(CSSValue::Number(w)) => *w >= 600.0,
             _ => false,
         },
+        family: crate::font::Family::from_css(&get_str("font-family")),
         border_box: is_border_box,
         min_width: get_dim("min-width"),
         max_width: get_dim("max-width"),

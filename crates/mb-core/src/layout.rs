@@ -113,6 +113,8 @@ pub struct LayoutBox {
     pub grid_gap: f32,
     /// `font-weight` 600 and up: text uses the bold face.
     pub bold: bool,
+    /// The generic family of `font-family` (sans, serif, monospace).
+    pub family: crate::font::Family,
     /// Per-side border colours (top, right, bottom, left) over `border_color`.
     pub border_side_colors: [Option<Color>; 4],
     /// `overflow: hidden` (or clip/auto/scroll): content is clipped to the padding box.
@@ -122,6 +124,11 @@ pub struct LayoutBox {
 }
 
 impl LayoutBox {
+    /// The face its text is drawn in.
+    pub fn face(&self) -> crate::font::Face {
+        crate::font::Face { family: self.family, bold: self.bold }
+    }
+
     /// Total width including margin + border + padding + content.
     pub fn margin_box_width(&self) -> f32 {
         self.margin.left
@@ -195,6 +202,8 @@ pub struct StyledNode {
     pub grid_gap: f32,
     /// `font-weight` 600 and up: text uses the bold face.
     pub bold: bool,
+    /// The generic family of `font-family` (sans, serif, monospace).
+    pub family: crate::font::Family,
     /// Per-side border colours (top, right, bottom, left) over `border_color`.
     pub border_side_colors: [Option<Color>; 4],
     /// `overflow: hidden` (or clip/auto/scroll): content is clipped to the padding box.
@@ -346,6 +355,11 @@ pub enum NodeContent {
 }
 
 impl StyledNode {
+    /// The face its text is drawn in.
+    pub fn face(&self) -> crate::font::Face {
+        crate::font::Face { family: self.family, bold: self.bold }
+    }
+
     /// Convenience: create a simple text node with default styling.
     pub fn text(s: &str) -> Self {
         Self {
@@ -377,6 +391,7 @@ impl StyledNode {
             grid_template_columns: Vec::new(),
             grid_gap: 0.0,
             bold: false,
+            family: crate::font::Family::Sans,
             border_side_colors: [None; 4],
             overflow_hidden: false,
             border_box: false,
@@ -421,6 +436,7 @@ impl StyledNode {
             grid_template_columns: Vec::new(),
             grid_gap: 0.0,
             bold: false,
+            family: crate::font::Family::Sans,
             border_side_colors: [None; 4],
             overflow_hidden: false,
             border_box: false,
@@ -441,8 +457,8 @@ impl StyledNode {
 
 /// Approximate width of a single character at the given font size.
 /// Use fontdue for accurate text measurement (matching paint module).
-fn measure_text_width(text: &str, font_size: f32, bold: bool) -> f32 {
-    crate::font::FontduFont::shared().measure_text_in(text, font_size, bold)
+fn measure_text_width(text: &str, font_size: f32, face: crate::font::Face) -> f32 {
+    crate::font::FontduFont::shared().measure_text_in(text, font_size, face)
 }
 
 
@@ -509,6 +525,7 @@ pub(crate) fn build_layout_box(node: &StyledNode) -> LayoutBox {
             grid_template_columns: Vec::new(),
             grid_gap: 0.0,
             bold: false,
+            family: crate::font::Family::Sans,
             border_side_colors: [None; 4],
             overflow_hidden: false,
             border_box: false,
@@ -573,6 +590,7 @@ pub(crate) fn build_layout_box(node: &StyledNode) -> LayoutBox {
         grid_template_columns: node.grid_template_columns.clone(),
         grid_gap: node.grid_gap,
         bold: node.bold,
+        family: node.family,
         border_side_colors: node.border_side_colors,
         overflow_hidden: node.overflow_hidden,
         border_box: node.border_box,
@@ -820,7 +838,7 @@ impl LayoutBox {
             // so that inline siblings are properly separated (e.g. "with <b>bold</b>")
             if let BoxContent::Text(ref s) = child.content {
                 if s.starts_with(|c: char| c.is_whitespace()) && cursor_x > content_x {
-                    cursor_x += measure_text_width(" ", child.font_size, child.bold);
+                    cursor_x += measure_text_width(" ", child.font_size, child.face());
                 }
             }
 
@@ -833,11 +851,11 @@ impl LayoutBox {
                     if words.is_empty() {
                         0.0
                     } else {
-                        let space_w = measure_text_width(" ", child.font_size, child.bold);
+                        let space_w = measure_text_width(" ", child.font_size, child.face());
                         let mut w: f32 = 0.0;
                         for (i, word) in words.iter().enumerate() {
                             if i > 0 { w += space_w; }
-                            w += measure_text_width(word, child.font_size, child.bold);
+                            w += measure_text_width(word, child.font_size, child.face());
                         }
                         if s.ends_with(|c: char| c.is_whitespace()) {
                             w += space_w;
@@ -969,7 +987,7 @@ impl LayoutBox {
             } else {
                 match &child.content {
                     BoxContent::Text(s) => {
-                        measure_text_width(s, child.font_size, child.bold) + child_horiz
+                        measure_text_width(s, child.font_size, child.face()) + child_horiz
                     }
                     BoxContent::Inline => {
                         // Inline children in flex: content width + horizontal extras
@@ -1379,7 +1397,7 @@ impl LayoutBox {
         for child in &self.children {
             total += match &child.content {
                 BoxContent::Text(s) => {
-                    measure_text_width(s, child.font_size, child.bold)
+                    measure_text_width(s, child.font_size, child.face())
                         + child.margin.left + child.margin.right
                         + child.padding.left + child.padding.right
                         + child.border.left + child.border.right
@@ -1438,7 +1456,7 @@ impl LayoutBox {
         let mut current_line_width: f32 = 0.0;
         let mut max_line_width: f32 = 0.0;
         let mut line_count: u32 = 1;
-        let space_width = measure_text_width(" ", font_size, self.bold);
+        let space_width = measure_text_width(" ", font_size, self.face());
 
         // Preserve trailing whitespace for inline flow:
         // when text ends with space, add it after the last word so the
@@ -1446,7 +1464,7 @@ impl LayoutBox {
         let has_trailing_space = text.ends_with(|c: char| c.is_whitespace());
 
         for (i, word) in words.iter().enumerate() {
-            let word_width = measure_text_width(word, font_size, self.bold);
+            let word_width = measure_text_width(word, font_size, self.face());
 
             let needed = if i == 0 || current_line_width == 0.0 {
                 word_width
@@ -1575,7 +1593,7 @@ impl LayoutBox {
     fn measure_subtree_content_width(node: &LayoutBox) -> f32 {
         match &node.content {
             BoxContent::Text(s) => {
-                measure_text_width(s, node.font_size, node.bold)
+                measure_text_width(s, node.font_size, node.face())
                     + node.padding.left + node.padding.right
                     + node.border.left + node.border.right
             }

@@ -775,6 +775,10 @@ fn apply_default_styles(tag: &str, styles: &mut StyleMap) {
             styles.insert("display".into(), CSSValue::Keyword("block".into()));
             styles.insert("margin-top".into(), CSSValue::Length(1.0, Unit::Em));
             styles.insert("margin-bottom".into(), CSSValue::Length(1.0, Unit::Em));
+            if tag == "pre" {
+                styles.insert("font-family".into(), CSSValue::Keyword("monospace".into()));
+                styles.insert("white-space".into(), CSSValue::Keyword("pre".into()));
+            }
         }
 
         "ul" | "ol" => {
@@ -824,8 +828,13 @@ fn apply_default_styles(tag: &str, styles: &mut StyleMap) {
 
         // Inline elements
         "span" | "a" | "label" | "abbr" | "cite" | "q" | "mark" | "s" | "del" | "ins"
-        | "code" | "small" | "big" | "sub" | "sup" | "u" => {
+        | "small" | "big" | "sub" | "sup" | "u" => {
             styles.insert("display".into(), CSSValue::Keyword("inline".into()));
+        }
+
+        "code" | "kbd" | "samp" | "tt" => {
+            styles.insert("display".into(), CSSValue::Keyword("inline".into()));
+            styles.insert("font-family".into(), CSSValue::Keyword("monospace".into()));
         }
 
         "strong" | "b" => {

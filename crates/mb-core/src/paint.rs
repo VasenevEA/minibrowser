@@ -237,7 +237,7 @@ fn paint_text(pixmap: &mut PixmapMut, layout_box: &LayoutBox, font: &FontduFont,
         return;
     }
 
-    let bold = layout_box.bold;
+    let bold = crate::font::Face { family: layout_box.family, bold: layout_box.bold };
     let space_w = font.measure_text_in(" ", font_size, bold);
 
     // Build lines for word wrapping (matching layout logic)
@@ -406,7 +406,7 @@ fn paint_image(pixmap: &mut PixmapMut, layout_box: &LayoutBox, font: &FontduFont
         let glyph_dy = (font.baseline_in_line(font_size, font.line_metrics(font_size).2) - font_size * 0.8).round() as i32;
         let pw = pixmap.width();
         let data = pixmap.data_mut();
-        font.draw_text_in(data, pw, cx as i32, cy as i32 + glyph_dy, alt, font_size, rgba, layout_box.bold, clip.arr());
+        font.draw_text_in(data, pw, cx as i32, cy as i32 + glyph_dy, alt, font_size, rgba, crate::font::Face { family: layout_box.family, bold: layout_box.bold }, clip.arr());
     }
 }
 

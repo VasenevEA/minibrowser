@@ -14,8 +14,78 @@ static TTF_BOLD: &[u8] = include_bytes!("../assets/DejaVuSans-Bold-hmi.ttf");
 // FontduFont — TTF-based font rendering via fontdue (dual-font: sans + mono)
 // ---------------------------------------------------------------------------
 
-/// A font renderer backed by fontdue with both proportional (sans) and monospace fonts.
-/// Sans is used by default; mono is used for code/pre elements.
+/// A text face: the CSS generic family a `font-family` comes down to, and
+/// whether it is bold (`font-weight` 600 and up).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Face {
+    pub family: Family,
+    pub bold: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Family {
+    #[default]
+    Sans,
+    Serif,
+    Mono,
+}
+
+impl From<bool> for Face {
+    /// Sans, bold or regular.
+    fn from(bold: bool) -> Self {
+        Face { family: Family::Sans, bold }
+    }
+}
+
+impl Family {
+    /// The generic family a CSS `font-family` list means: the first name this
+    /// engine can tell apart (a monospace or serif face), else sans.
+    pub fn from_css(list: &str) -> Family {
+        for name in list.split(',') {
+            let n = name.trim().trim_matches(|c| c == '"' || c == '\'').to_ascii_lowercase();
+            if n == "monospace" || ["mono", "courier", "consolas", "menlo", "monaco", "code"].iter().any(|k| n.contains(k)) {
+                return Family::Mono;
+            }
+            if n == "serif" || ["times", "georgia", "garamond", "palatino", "cambria", "book antiqua"].iter().any(|k| n.contains(k)) || (n.ends_with("serif") && !n.contains("sans")) {
+                return Family::Serif;
+            }
+            if n == "sans-serif" || n == "system-ui" || ["arial", "helvetica", "verdana", "tahoma", "segoe", "roboto", "sans", "inter", "-apple-system"].iter().any(|k| n.contains(k)) {
+                return Family::Sans;
+            }
+        }
+        Family::Sans
+    }
+}
+
+/// A serif face from the system, if it has one (the panel's Liberation Serif
+/// has Times' metrics): MB_FONT_SERIF / MB_FONT_SERIF_BOLD name another.
+fn system_serif(bold: bool) -> Option<fontdue::Font> {
+    let env = std::env::var(if bold { "MB_FONT_SERIF_BOLD" } else { "MB_FONT_SERIF" }).ok();
+    let names: &[&str] = if bold {
+        &[
+            "/usr/share/fonts/liberation/LiberationSerif-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
+            "/System/Library/Fonts/Supplemental/Times New Roman Bold.ttf",
+            "/Library/Fonts/Times New Roman Bold.ttf",
+        ]
+    } else {
+        &[
+            "/usr/share/fonts/liberation/LiberationSerif-Regular.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+            "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+            "/Library/Fonts/Times New Roman.ttf",
+        ]
+    };
+    env.iter().map(String::as_str).chain(names.iter().copied()).find_map(|path| {
+        let data = std::fs::read(path).ok()?;
+        fontdue::Font::from_bytes(data, fontdue::FontSettings::default()).ok()
+    })
+}
+
+/// A font renderer backed by fontdue: DejaVu Sans (regular and bold) and Sans
+/// Mono built in, a serif face from the system when it has one.
 pub struct FontduFont {
     sans: fontdue::Font,
     /// Parsed on first use: nothing draws monospace text yet, and fontdue keeps
@@ -23,9 +93,12 @@ pub struct FontduFont {
     mono: std::sync::OnceLock<fontdue::Font>,
     /// Bold sans, parsed on first bold text for the same reason.
     bold: std::sync::OnceLock<fontdue::Font>,
-    /// Rasterized glyphs by (char, size in 1/8 px, bold): a repaint redraws the
+    /// Serif regular and bold from the system (None: there is none, sans stands in).
+    serif: std::sync::OnceLock<Option<fontdue::Font>>,
+    serif_bold: std::sync::OnceLock<Option<fontdue::Font>>,
+    /// Rasterized glyphs by (char, size in 1/8 px, face): a repaint redraws the
     /// same few dozen glyphs, and rasterizing them is most of a T113 frame.
-    glyphs: std::sync::Mutex<std::collections::HashMap<(char, u32, bool), std::sync::Arc<(fontdue::Metrics, Vec<u8>)>>>,
+    glyphs: std::sync::Mutex<std::collections::HashMap<(char, u32, Face), std::sync::Arc<(fontdue::Metrics, Vec<u8>)>>>,
 }
 
 /// A clip rectangle `[x0, y0, x1, y1)` that clips nothing.
@@ -46,6 +119,8 @@ impl FontduFont {
             sans,
             mono: std::sync::OnceLock::new(),
             bold: std::sync::OnceLock::new(),
+            serif: std::sync::OnceLock::new(),
+            serif_bold: std::sync::OnceLock::new(),
             glyphs: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
@@ -78,20 +153,29 @@ impl FontduFont {
         &self.sans
     }
 
-    /// The sans face for `font-weight` bold (600 and up) or regular.
-    pub fn face(&self, bold: bool) -> &fontdue::Font {
-        if !bold {
-            return &self.sans;
+    /// The font for `face` (sans when the system has no serif; mono has no bold).
+    pub fn face(&self, face: impl Into<Face>) -> &fontdue::Font {
+        let face = face.into();
+        match (face.family, face.bold) {
+            (Family::Mono, _) => self.mono_font(),
+            (Family::Serif, bold) => {
+                let cell = if bold { &self.serif_bold } else { &self.serif };
+                match cell.get_or_init(|| system_serif(bold)) {
+                    Some(f) => f,
+                    None => self.face(bold),
+                }
+            }
+            (Family::Sans, false) => &self.sans,
+            (Family::Sans, true) => self.bold.get_or_init(|| {
+                fontdue::Font::from_bytes(TTF_BOLD, fontdue::FontSettings::default())
+                    .expect("failed to parse embedded TTF bold font")
+            }),
         }
-        self.bold.get_or_init(|| {
-            fontdue::Font::from_bytes(TTF_BOLD, fontdue::FontSettings::default())
-                .expect("failed to parse embedded TTF bold font")
-        })
     }
 
     /// The rasterized glyph, from the cache when it has been drawn before.
-    fn glyph(&self, ch: char, font_size: f32, bold: bool) -> std::sync::Arc<(fontdue::Metrics, Vec<u8>)> {
-        let key = (ch, (font_size * 8.0).round() as u32, bold);
+    fn glyph(&self, ch: char, font_size: f32, face: Face) -> std::sync::Arc<(fontdue::Metrics, Vec<u8>)> {
+        let key = (ch, (font_size * 8.0).round() as u32, face);
         let mut cache = self.glyphs.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(g) = cache.get(&key) {
             return g.clone();
@@ -99,25 +183,26 @@ impl FontduFont {
         if cache.len() >= GLYPH_CACHE_MAX {
             cache.clear();
         }
-        let g = std::sync::Arc::new(self.face_for(ch, bold).rasterize(ch, font_size));
+        let g = std::sync::Arc::new(self.face_for(ch, face).rasterize(ch, font_size));
         cache.insert(key, g.clone());
         g
     }
 
-    /// The face that draws `ch`: bold when asked for and it has the glyph (the
-    /// bold subset is smaller), regular otherwise.
-    fn face_for(&self, ch: char, bold: bool) -> &fontdue::Font {
-        let face = self.face(bold);
-        if bold && face.lookup_glyph_index(ch) == 0 {
+    /// The font that draws `ch` in `face`: that face when it has the glyph
+    /// (the bold and mono subsets are smaller), regular sans otherwise.
+    fn face_for(&self, ch: char, face: Face) -> &fontdue::Font {
+        let font = self.face(face);
+        if face != Face::default() && font.lookup_glyph_index(ch) == 0 {
             &self.sans
         } else {
-            face
+            font
         }
     }
 
-    /// Width of `text` in the regular or bold face.
-    pub fn measure_text_in(&self, text: &str, font_size: f32, bold: bool) -> f32 {
-        text.chars().map(|ch| self.face_for(ch, bold).metrics(ch, font_size).advance_width).sum()
+    /// Width of `text` in `face` (a bool: sans, bold or not).
+    pub fn measure_text_in(&self, text: &str, font_size: f32, face: impl Into<Face>) -> f32 {
+        let face = face.into();
+        text.chars().map(|ch| self.face_for(ch, face).metrics(ch, font_size).advance_width).sum()
     }
 
     /// Get the mono font reference (for code/pre elements).
@@ -166,7 +251,7 @@ impl FontduFont {
         font_size: f32,
         color: [u8; 4],
     ) -> f32 {
-        self.draw_char_in(buf, stride, dest_x, dest_y, ch, font_size, color, false, NO_CLIP)
+        self.draw_char_in(buf, stride, dest_x, dest_y, ch, font_size, color, Face::default(), NO_CLIP)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -179,10 +264,10 @@ impl FontduFont {
         ch: char,
         font_size: f32,
         color: [u8; 4],
-        bold: bool,
+        face: Face,
         clip: [i32; 4],
     ) -> f32 {
-        let glyph = self.glyph(ch, font_size, bold);
+        let glyph = self.glyph(ch, font_size, face);
         let (metrics, bitmap) = (&glyph.0, &glyph.1);
         let m = metrics;
 
@@ -232,10 +317,10 @@ impl FontduFont {
         font_size: f32,
         color: [u8; 4],
     ) -> f32 {
-        self.draw_text_in(buf, stride, x, y, text, font_size, color, false, NO_CLIP)
+        self.draw_text_in(buf, stride, x, y, text, font_size, color, Face::default(), NO_CLIP)
     }
 
-    /// `draw_text` in the regular or bold face, inside `clip` (`[x0, y0, x1, y1)`).
+    /// `draw_text` in `face`, inside `clip` (`[x0, y0, x1, y1)`).
     #[allow(clippy::too_many_arguments)]
     pub fn draw_text_in(
         &self,
@@ -246,12 +331,13 @@ impl FontduFont {
         text: &str,
         font_size: f32,
         color: [u8; 4],
-        bold: bool,
+        face: impl Into<Face>,
         clip: [i32; 4],
     ) -> f32 {
+        let face = face.into();
         let mut cx = x as f32;
         for ch in text.chars() {
-            let advance = self.draw_char_in(buf, stride, cx as i32, y, ch, font_size, color, bold, clip);
+            let advance = self.draw_char_in(buf, stride, cx as i32, y, ch, font_size, color, face, clip);
             cx += advance;
         }
         cx - x as f32
