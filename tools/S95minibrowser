@@ -1,0 +1,30 @@
+#!/bin/sh
+# MiniBrowser: the HTML dashboard full screen (DRM/KMS, touch).
+# Pages live in /root/dash; the collector on the Mac mini pushes /tmp/dash.json.
+
+DAEMON=/root/mb-fb
+PAGE=/root/dash/index.html
+PIDFILE=/var/run/minibrowser.pid
+LOGFILE=/tmp/minibrowser.log
+
+case "$1" in
+    start)
+        echo "Starting MiniBrowser..."
+        echo 0 > /sys/class/graphics/fb0/blank 2>/dev/null
+        TZ=MSK-3 start-stop-daemon -S -b -m -p $PIDFILE -x /bin/sh -- -c "TZ=MSK-3 exec $DAEMON $PAGE >> $LOGFILE 2>&1"
+        ;;
+    stop)
+        echo "Stopping MiniBrowser..."
+        start-stop-daemon -K -p $PIDFILE 2>/dev/null
+        rm -f $PIDFILE
+        ;;
+    restart)
+        $0 stop
+        sleep 1
+        $0 start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
