@@ -12,7 +12,8 @@ html5ever = "0.29"
 markup5ever = "0.14"
 tendril = "0.4"
 cssparser = "0.34"
-tiny-skia = { version = "0.11", default-features = false, features = ["std"] }
+tiny-skia = { version = "0.12", default-features = false, features = ["std"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 fontdue = "0.9"
 taffy = { version = "0.15", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "content_size"] }
+resvg = { version = "0.49", default-features = false }

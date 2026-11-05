@@ -14,6 +14,7 @@ pub mod layout;
 pub mod layout_taffy;
 pub mod page;
 pub mod paint;
+pub mod svg;
 
 pub use js_engine::JsHost;
 pub use page::{LayoutEngine, Page, Stats};

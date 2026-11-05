@@ -79,6 +79,7 @@ pub struct Page {
     damage: Vec<crate::damage::Rect>,
     /// Element ids already handed to the JS host (see `seed_js`).
     seeded: std::collections::HashSet<String>,
+    svg: crate::svg::SvgCache,
 }
 
 impl Page {
@@ -104,6 +105,7 @@ impl Page {
             quirks: false,
             damage: Vec::new(),
             seeded: std::collections::HashSet::new(),
+            svg: crate::svg::SvgCache::default(),
         }
     }
 
@@ -384,8 +386,12 @@ impl Page {
             focused: self.focused_input.as_deref(),
             images: &self.images,
             pending: &mut self.pending_images,
+            svg: &mut self.svg,
+            svg_used: Vec::new(),
         };
         let layout_input = convert_styled(&styled.root, &mut cx);
+        let used = std::mem::take(&mut cx.svg_used);
+        self.svg.retain_used(&used);
         // Lay out against the full content height, not the viewport.
         let layout_root = match self.engine {
             LayoutEngine::Builtin => layout::layout_tree(&layout_input, self.width as f32, 100000.0),
@@ -487,6 +493,9 @@ struct Cx<'a> {
     focused: Option<&'a str>,
     images: &'a HashMap<String, (Vec<u8>, u32, u32)>,
     pending: &'a mut Vec<String>,
+    svg: &'a mut crate::svg::SvgCache,
+    /// Cache keys of the drawings this render used.
+    svg_used: Vec<(String, u32, u32)>,
 }
 
 impl Cx<'_> {
@@ -799,6 +808,13 @@ fn convert_styled(sn: &css::StyledNode, cx: &mut Cx) -> layout::StyledNode {
                         }
                     }
                 }
+                "svg" => match crate::svg::render(sn, cx.svg) {
+                    Some(((data, w, h), key)) => {
+                        cx.svg_used.push(key);
+                        layout::NodeContent::Image { alt: String::new(), data, intrinsic_w: w, intrinsic_h: h }
+                    }
+                    None => layout::NodeContent::Element,
+                },
                 "img" => {
                     let alt = data.attributes.get("alt").cloned().unwrap_or_default();
                     let src = data.attributes.get("src").cloned().unwrap_or_default();
@@ -1040,7 +1056,13 @@ fn convert_styled(sn: &css::StyledNode, cx: &mut Cx) -> layout::StyledNode {
         },
         content,
         children: {
-            let mut kids: Vec<layout::StyledNode> = laid_out_children(sn).map(|c| convert_styled(c, cx)).collect();
+            // An <svg>'s children are its drawing, already rendered, not boxes.
+            let is_svg = matches!(&sn.node_type, dom::NodeType::Element(d) if d.tag_name == "svg");
+            let mut kids: Vec<layout::StyledNode> = if is_svg {
+                Vec::new()
+            } else {
+                laid_out_children(sn).map(|c| convert_styled(c, cx)).collect()
+            };
             // White space at the start and end of a block's (or button's) content
             // is at a line edge, where CSS removes it.
             let starts_lines = match &sn.node_type {
