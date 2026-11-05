@@ -305,6 +305,10 @@ impl BlitzPage {
         !rects.is_empty()
     }
 
+    pub fn scene_summary(&self) -> String {
+        describe_scene(&self.last)
+    }
+
     /// Paints the whole screen again (for checks); returns the pixels.
     pub fn repaint_full(&mut self) -> Vec<u8> {
         self.last.clear();
@@ -435,4 +439,21 @@ fn snap(r: Rect, w: u32, h: u32) -> Option<tiny_skia::IntRect> {
         return None;
     }
     tiny_skia::IntRect::from_ltrb(x0, y0, x1, y1)
+}
+
+/// Kinds of the last recorded scene's commands, for tracing.
+pub fn describe_scene(cmds: &[RenderCommand]) -> String {
+    let mut n = [0usize; 7];
+    for c in cmds {
+        n[match c {
+            RenderCommand::PushLayer(_) => 0,
+            RenderCommand::PushClipLayer(_) => 1,
+            RenderCommand::PopLayer => 2,
+            RenderCommand::Stroke(_) => 3,
+            RenderCommand::Fill(_) => 4,
+            RenderCommand::GlyphRun(_) => 5,
+            RenderCommand::BoxShadow(_) => 6,
+        }] += 1;
+    }
+    format!("layers {} clips {} pops {} strokes {} fills {} text {} shadows {}", n[0], n[1], n[2], n[3], n[4], n[5], n[6])
 }

@@ -23,6 +23,8 @@ struct Layer {
     mask: Option<sk::Mask>,
     /// It pushed a pixmap on `surfaces`.
     compositing: bool,
+    /// Region pixels its clip can touch (what is composited on pop).
+    bbox: Option<sk::IntRect>,
     alpha: f32,
     blend: sk::BlendMode,
     /// Nothing of this layer can show (its clip misses the region).
@@ -90,7 +92,19 @@ impl TinySkiaScene {
     /// Paints recorded commands (a recorded scene, without consuming it).
     pub fn replay(&mut self, cmds: &[anyrender::recording::RenderCommand]) {
         use anyrender::recording::RenderCommand as C;
+        let profile = std::env::var_os("MB_PROFILE").is_some();
+        let mut spent = [0f64; 7];
         for cmd in cmds {
+            let t = std::time::Instant::now();
+            let kind = match cmd {
+                C::PushLayer(_) => 0,
+                C::PushClipLayer(_) => 1,
+                C::PopLayer => 2,
+                C::Stroke(_) => 3,
+                C::Fill(_) => 4,
+                C::GlyphRun(_) => 5,
+                C::BoxShadow(_) => 6,
+            };
             match cmd {
                 C::PushLayer(c) => self.push_layer(c.fill, c.blend, c.alpha, c.transform, &c.clip, None, None),
                 C::PushClipLayer(c) => self.push_clip_layer(c.fill, c.transform, &c.clip),
@@ -112,6 +126,15 @@ impl TinySkiaScene {
                 ),
                 C::BoxShadow(c) => self.draw_box_shadow(c.transform, c.rect, c.brush, c.radius, c.std_dev),
             }
+            if profile {
+                spent[kind] += t.elapsed().as_secs_f64() * 1e3;
+            }
+        }
+        if profile {
+            eprintln!(
+                "replay ms: layers {:.2} clips {:.2} pops {:.2} strokes {:.2} fills {:.2} text {:.2} shadows {:.2}",
+                spent[0], spent[1], spent[2], spent[3], spent[4], spent[5], spent[6]
+            );
         }
     }
 
@@ -454,12 +477,20 @@ impl PaintScene for TinySkiaScene {
         if compositing {
             self.surfaces.push(sk::Pixmap::new(self.region.width(), self.region.height()).unwrap());
         }
-        self.layers.push(Layer { mask, compositing, alpha, blend, empty });
+        let b = transform.transform_rect_bbox(clip.bounding_box());
+        let r = self.region;
+        let bbox = sk::IntRect::from_ltrb(
+            (b.x0.floor() as i32 - r.x() - 1).max(0),
+            (b.y0.floor() as i32 - r.y() - 1).max(0),
+            (b.x1.ceil() as i32 - r.x() + 1).min(r.width() as i32),
+            (b.y1.ceil() as i32 - r.y() + 1).min(r.height() as i32),
+        );
+        self.layers.push(Layer { mask, compositing, bbox, alpha, blend, empty });
     }
 
     fn push_clip_layer(&mut self, fill: Fill, transform: Affine, clip: &impl Shape) {
         let (mask, empty) = self.clip_layer(fill, transform, clip);
-        self.layers.push(Layer { mask, compositing: false, alpha: 1.0, blend: sk::BlendMode::SourceOver, empty });
+        self.layers.push(Layer { mask, compositing: false, bbox: None, alpha: 1.0, blend: sk::BlendMode::SourceOver, empty });
     }
 
     fn pop_layer(&mut self) {
@@ -468,7 +499,11 @@ impl PaintScene for TinySkiaScene {
             let Some(p) = self.surfaces.pop() else { return };
             let paint = sk::PixmapPaint { opacity: layer.alpha, blend_mode: layer.blend, quality: sk::FilterQuality::Nearest };
             let dst = self.surfaces.last_mut().unwrap_or(&mut self.pixmap);
-            dst.draw_pixmap(0, 0, p.as_ref(), &paint, sk::Transform::identity(), None);
+            // Only the part the layer's clip covers.
+            match layer.bbox.and_then(|b| p.clone_rect(b).map(|c| (b, c))) {
+                Some((b, part)) => dst.draw_pixmap(b.x(), b.y(), part.as_ref(), &paint, sk::Transform::identity(), None),
+                None => dst.draw_pixmap(0, 0, p.as_ref(), &paint, sk::Transform::identity(), None),
+            }
         }
     }
 

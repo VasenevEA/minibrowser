@@ -29,6 +29,7 @@ fn main() {
     page.load(&html);
     eprintln!("load {:.1} ms, {} nodes", t.elapsed().as_secs_f64() * 1e3, page.node_count());
     page.take_damage();
+    eprintln!("scene: {}", page.scene_summary());
     for (x, y) in clicks {
         let t = Instant::now();
         let r = page.click(x, y);
