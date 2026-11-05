@@ -8,6 +8,9 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+#[cfg(feature = "net")]
+mod net;
+
 use mb_core::js_engine::SharedDom;
 use mb_core::JsHost;
 use rquickjs::{CatchResultExt, Context, Function, Runtime};
@@ -23,8 +26,11 @@ pub struct QuickJs {
     base: Option<PathBuf>,
     /// Binary data scripts hand over (putImageData pixels), by handle - 1.
     blobs: Blobs,
-    /// The live document, if the engine has one (Blitz).
+    /// The live document, if the engine has one.
     dom: Option<SharedDom>,
+    /// Requests and sockets scripts started (feature `net`).
+    #[cfg(feature = "net")]
+    net: Rc<RefCell<net::Net>>,
 }
 
 type Blobs = Rc<RefCell<Vec<Vec<u8>>>>;
@@ -32,8 +38,9 @@ type Blobs = Rc<RefCell<Vec<Vec<u8>>>>;
 impl QuickJs {
     pub fn new() -> Self {
         let blobs = Blobs::default();
-        let (rt, ctx) = fresh(None, blobs.clone(), None);
-        QuickJs { rt, ctx, base: None, blobs, dom: None }
+        let host = Host::default();
+        let (rt, ctx) = fresh(None, blobs.clone(), None, &host);
+        QuickJs { rt, ctx, base: None, blobs, dom: None, #[cfg(feature = "net")] net: host.net }
     }
 
     /// A host whose `fetch` reads files: relative URLs from `base` (the page's
@@ -42,8 +49,9 @@ impl QuickJs {
     pub fn with_files(base: &Path) -> Self {
         let base = Some(base.to_path_buf());
         let blobs = Blobs::default();
-        let (rt, ctx) = fresh(base.clone(), blobs.clone(), None);
-        QuickJs { rt, ctx, base, blobs, dom: None }
+        let host = Host::default();
+        let (rt, ctx) = fresh(base.clone(), blobs.clone(), None, &host);
+        QuickJs { rt, ctx, base, blobs, dom: None, #[cfg(feature = "net")] net: host.net }
     }
 
     /// Evaluates `code` and returns the commands it queued. If it threw, the commands
@@ -95,7 +103,15 @@ where
     f
 }
 
-fn fresh(base: Option<PathBuf>, blobs: Blobs, dom: Option<SharedDom>) -> (Runtime, Context) {
+/// What a fresh context's natives share with the host.
+#[derive(Default, Clone)]
+struct Host {
+    #[cfg(feature = "net")]
+    net: Rc<RefCell<net::Net>>,
+}
+
+fn fresh(base: Option<PathBuf>, blobs: Blobs, dom: Option<SharedDom>, host: &Host) -> (Runtime, Context) {
+    let _ = host;
     let rt = Runtime::new().expect("QuickJS runtime");
     // A page must not take the panel down with it.
     // Big enough for a game compiled to JS (Doom: ~40 MB with its heap).
@@ -130,6 +146,29 @@ fn fresh(base: Option<PathBuf>, blobs: Blobs, dom: Option<SharedDom>) -> (Runtim
         if let Ok(blob) = blob {
             let _ = ctx.globals().set("__mb_blob", blob);
         }
+        #[cfg(feature = "net")]
+        {
+            let net = host.net.clone();
+            let f = Function::new(ctx.clone(), move |method: String, url: String, body: Option<String>, headers: String| -> u32 {
+                let headers: Vec<(String, String)> = serde_json::from_str(&headers).unwrap_or_default();
+                net.borrow_mut().request(method, url, body, headers)
+            });
+            if let Ok(f) = f {
+                let _ = ctx.globals().set("__mb_http", f);
+            }
+            let net = host.net.clone();
+            if let Ok(f) = Function::new(ctx.clone(), move |url: String| -> u32 { net.borrow_mut().ws_open(url) }) {
+                let _ = ctx.globals().set("__mb_ws_open", f);
+            }
+            let net = host.net.clone();
+            if let Ok(f) = Function::new(ctx.clone(), move |id: u32, text: String| net.borrow_mut().ws_send(id, text)) {
+                let _ = ctx.globals().set("__mb_ws_send", f);
+            }
+            let net = host.net.clone();
+            if let Ok(f) = Function::new(ctx.clone(), move |id: u32| net.borrow_mut().ws_close(id)) {
+                let _ = ctx.globals().set("__mb_ws_close", f);
+            }
+        }
         ctx.eval::<(), _>(DOM_JS).catch(&ctx).map_err(|e| e.to_string()).expect("dom.js");
         if let Some(dom) = dom {
             // __mb_dom(op, argsJson) → resultJson: one call into the live document.
@@ -153,7 +192,13 @@ fn fresh(base: Option<PathBuf>, blobs: Blobs, dom: Option<SharedDom>) -> (Runtim
 impl JsHost for QuickJs {
     fn reset(&mut self) {
         self.blobs.borrow_mut().clear();
-        let (rt, ctx) = fresh(self.base.clone(), self.blobs.clone(), self.dom.clone());
+        #[cfg(feature = "net")]
+        self.net.borrow_mut().reset();
+        let host = Host {
+            #[cfg(feature = "net")]
+            net: self.net.clone(),
+        };
+        let (rt, ctx) = fresh(self.base.clone(), self.blobs.clone(), self.dom.clone(), &host);
         // Drop the old context before its runtime.
         self.ctx = ctx;
         self.rt = rt;
@@ -164,14 +209,21 @@ impl JsHost for QuickJs {
     }
 
     fn tick(&mut self, now_ms: f64) -> Result<String, String> {
-        self.eval_take(&format!("__mb_tick({})", now_ms), now_ms)
+        // What the network brought runs first, like a browser's task queue.
+        self.eval_take(&format!("{}__mb_tick({})", self.net_events(), now_ms), now_ms)
     }
 
     fn next_timer(&self, now_ms: f64) -> Option<f64> {
-        self.ctx.with(|ctx| {
+        let t = self.ctx.with(|ctx| {
             let d: f64 = ctx.eval(format!("__mb_next({})", now_ms)).ok()?;
             (d >= 0.0).then_some(d)
-        })
+        });
+        // Requests and sockets running: look again soon.
+        #[cfg(feature = "net")]
+        if self.net.borrow().busy() {
+            return Some(t.map_or(16.0, |t| t.min(16.0)));
+        }
+        t
     }
 
     fn set_dom(&mut self, dom: SharedDom) -> bool {
@@ -200,6 +252,31 @@ impl JsHost for QuickJs {
         self.ctx.with(|ctx| {
             let _ = ctx.eval::<(), _>(format!("__mb_el({id})._attrs.value = {value}; __mb_el({id})._text = {value};"));
         });
+    }
+}
+
+impl QuickJs {
+    /// JS that hands over the network's events since the last tick.
+    fn net_events(&self) -> String {
+        #[cfg(feature = "net")]
+        {
+            let events = self.net.borrow_mut().take();
+            if events.is_empty() {
+                return String::new();
+            }
+            let list: Vec<serde_json::Value> = events
+                .into_iter()
+                .map(|e| match e {
+                    net::Event::Done { id, status, body, error } => serde_json::json!({
+                        "t": "done", "id": id, "status": status, "body": String::from_utf8_lossy(&body), "error": error
+                    }),
+                    net::Event::Ws { id, kind, data } => serde_json::json!({ "t": "ws", "id": id, "kind": kind, "data": data }),
+                })
+                .collect();
+            return format!("__mb_net_deliver({});\n", serde_json::Value::Array(list));
+        }
+        #[allow(unreachable_code)]
+        String::new()
     }
 }
 

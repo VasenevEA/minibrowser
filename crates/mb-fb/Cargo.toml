@@ -16,6 +16,8 @@ mb-blitz = { path = "../mb-blitz", optional = true }
 mimalloc = { version = "0.1", default-features = false, optional = true }
 
 [features]
+# fetch/XHR over http(s) and WebSockets for scripts.
+net = ["mb-qjs/net"]
 bindgen = ["mb-qjs/bindgen"]
 default = ["kms", "mimalloc"]
 # DRM/KMS output (double buffering with vsync); without it only fbdev.

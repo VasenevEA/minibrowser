@@ -62,6 +62,11 @@ fn main() {
     while wait > 0.0 && now < wait {
         let step = page.next_timer(now).unwrap_or(wait).max(1.0).min(wait - now);
         now += step;
+        // MB_REALTIME=1: the page clock runs with the wall clock, so answers
+        // from the network (fetch, WebSocket) can arrive in between.
+        if std::env::var_os("MB_REALTIME").is_some() {
+            std::thread::sleep(std::time::Duration::from_secs_f64(step / 1000.0));
+        }
         page.tick(now);
     }
 

@@ -28,5 +28,5 @@ http = ["dep:ureq"]
 
 [dev-dependencies]
 log = "0.4"
-mb-qjs = { path = "../mb-qjs" }
+mb-qjs = { path = "../mb-qjs", features = ["net"] }
 png = "0.17"

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  body { margin: 0; padding: 16px; background: #0b1020; color: #e2e8f0; font: 15px sans-serif; }
+  h1 { margin: 0 0 12px; font-size: 19px; color: #38bdf8; }
+  .row { display: flex; gap: 12px; margin-bottom: 12px; }
+  .card { flex: 1; background: #111a2e; border: 1px solid #1e2a44; border-radius: 10px; padding: 12px; }
+  .v { font-size: 34px; font-weight: bold; color: #fbbf24; }
+  .k { color: #64748b; font-size: 13px; }
+  #state { color: #22c55e; }
+  #log { font: 13px monospace; color: #94a3b8; height: 110px; overflow: hidden; }
+  button { background: #1e3a8a; color: #dbeafe; border: 0; border-radius: 6px; padding: 8px 14px; font-size: 14px; }
+</style></head>
+<body>
+<h1>WebSocket + асинхронный fetch</h1>
+<div class="row">
+  <div class="card"><div class="k">температура (WebSocket)</div><div class="v" id="temp">–</div></div>
+  <div class="card"><div class="k">давление (WebSocket)</div><div class="v" id="pres">–</div></div>
+  <div class="card"><div class="k">погода в Москве (fetch)</div><div class="v" id="weather">…</div></div>
+</div>
+<div class="row">
+  <div class="card"><span class="k">сокет: </span><span id="state">подключение…</span> · сообщений: <b id="n">0</b>
+    <button id="ping" style="margin-left:12px">отправить ping</button></div>
+</div>
+<div class="card" id="log"></div>
+<script>
+  const $ = id => document.getElementById(id);
+  const log = msg => { const d = document.createElement('div'); d.textContent = msg; $('log').prepend(d); while ($('log').children.length > 6) $('log').lastChild.remove(); };
+  let count = 0;
+  const ws = new WebSocket('ws://127.0.0.1:8765/');
+  ws.onopen = () => { $('state').textContent = 'открыт'; log('open'); };
+  ws.onmessage = e => {
+    const d = JSON.parse(e.data);
+    if (d.echo) { log('echo: ' + d.echo); return; }
+    $('temp').textContent = d.temp.toFixed(1) + ' °C';
+    $('pres').textContent = d.pressure.toFixed(2) + ' бар';
+    $('n').textContent = ++count;
+  };
+  ws.onclose = () => { $('state').textContent = 'закрыт'; log('close'); };
+  ws.onerror = e => log('error: ' + e.message);
+  $('ping').addEventListener('click', () => ws.send('ping ' + new Date().toISOString().slice(11, 19)));
+  fetch('https://api.open-meteo.com/v1/forecast?latitude=55.75&longitude=37.62&current=temperature_2m')
+    .then(r => r.json())
+    .then(d => { $('weather').textContent = d.current.temperature_2m + ' °C'; log('fetch: ' + d.current.time); })
+    .catch(e => { $('weather').textContent = '—'; log('fetch: ' + e); });
+  log('скрипт выполнен, ждём данные');
+</script>
+</body></html>

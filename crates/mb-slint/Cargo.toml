@@ -16,6 +16,8 @@ i-slint-common = { version = "=1.18.1", features = ["fontconfig-dlopen"], option
 slint = { version = "1.18", default-features = false, features = ["std", "compat-1-18"] }
 
 [features]
+# fetch/XHR over http(s) and WebSockets for scripts.
+net = ["mb-qjs/net"]
 default = ["desktop"]
 # A window on the desktop (winit, software renderer).
 desktop = ["slint/backend-winit", "slint/renderer-software"]

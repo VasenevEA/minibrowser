@@ -9,3 +9,7 @@ license = "MIT"
 mb-core = { path = "../mb-core" }
 mb-qjs = { path = "../mb-qjs" }
 image = { version = "0.25", default-features = false, features = ["png"] }
+
+[features]
+# fetch/XHR over http(s) and WebSockets for scripts.
+net = ["mb-qjs/net"]

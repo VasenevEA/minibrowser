@@ -175,6 +175,11 @@ impl BlitzPage {
         if !self.live {
             self.seed_js();
         }
+        if let Some(url) = &self.url {
+            // fetch, XHR and WebSocket resolve relative URLs against it.
+            let cmds = run(self.js.as_mut(), &format!("window.__mb_base = {};", js_string(url)), self.now_ms);
+            self.apply(&cmds);
+        }
         for code in self.scripts() {
             let cmds = run(self.js.as_mut(), &code, self.now_ms);
             self.apply(&cmds);

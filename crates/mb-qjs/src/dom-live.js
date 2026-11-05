@@ -443,8 +443,9 @@ function __mb_loaded() {
   __mb_fire(window, (function () { var e = new Event('load'); e.target = document; return e; })(), false);
 }
 
-// fetch and XMLHttpRequest for web pages: the engine loads http(s) URLs
-// (synchronously, so a slow server holds the page); files as before.
+// fetch and XMLHttpRequest for web pages without the host's network
+// (feature `net`): the engine loads http(s) URLs synchronously.
+if (typeof __mb_http !== 'function') (function () {
 var __mb_file_fetch = fetch;
 function __mb_web(url) {
   var r = __mb_d('fetch', String(url));
@@ -495,3 +496,4 @@ XMLHttpRequest.prototype.send = function () {
 };
 XMLHttpRequest.UNSENT = 0; XMLHttpRequest.OPENED = 1; XMLHttpRequest.DONE = 4;
 window.XMLHttpRequest = XMLHttpRequest;
+})();

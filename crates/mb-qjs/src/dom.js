@@ -275,6 +275,156 @@ function fetch(url) {
     });
   });
 }
+// ---- the web (the host's feature `net`): requests and sockets on threads,
+// their results delivered on a later tick through __mb_net_deliver.
+
+var __mb_base = null;
+var __mb_net_pending = {};
+var __mb_sockets = {};
+
+// An absolute http(s)/ws(s) URL for `url`, against the page's own web
+// address; null for the page's files.
+function __mb_abs(url) {
+  url = String(url);
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return /^(https?|wss?):/i.test(url) ? url : null;
+  var base = window.__mb_base;
+  if (!base || !/^https?:/i.test(base)) return null;
+  var m = /^([a-z]+:\/\/[^\/]+)(\/[^?#]*)?/i.exec(base);
+  if (!m) return null;
+  if (url.slice(0, 2) === '//') return base.split(':')[0] + ':' + url;
+  if (url[0] === '/') return m[1] + url;
+  var dir = (m[2] || '/').replace(/[^\/]*$/, '');
+  return m[1] + dir + url;
+}
+
+function __mb_response(e, url) {
+  var body = e.body || '';
+  return {
+    ok: e.status >= 200 && e.status < 300, status: e.status, statusText: '', url: url, redirected: false,
+    headers: { get: function () { return null; }, has: function () { return false; }, forEach: function () {} },
+    text: function () { return Promise.resolve(body); },
+    json: function () { return new Promise(function (ok) { ok(JSON.parse(body)); }); },
+    arrayBuffer: function () {
+      var b = new Uint8Array(body.length);
+      for (var i = 0; i < body.length; i++) b[i] = body.charCodeAt(i) & 255;
+      return Promise.resolve(b.buffer);
+    },
+    clone: function () { return __mb_response(e, url); }
+  };
+}
+
+function __mb_net_deliver(list) {
+  for (var i = 0; i < list.length; i++) {
+    var e = list[i];
+    if (e.t === 'done') {
+      var cb = __mb_net_pending[e.id];
+      delete __mb_net_pending[e.id];
+      if (cb) try { cb(e); } catch (x) { console.error('fetch callback: ' + x); }
+    } else {
+      var s = __mb_sockets[e.id];
+      if (s) s._event(e.kind, e.data);
+    }
+  }
+}
+
+function __mb_request(method, url, body, headers, done) {
+  var h = [];
+  if (headers) {
+    if (typeof headers.forEach === 'function' && !Array.isArray(headers)) headers.forEach(function (v, k) { h.push([k, String(v)]); });
+    else for (var k in headers) h.push([k, String(headers[k])]);
+  }
+  var id = __mb_http(String(method || 'GET').toUpperCase(), url, body === undefined || body === null ? null : String(body), JSON.stringify(h));
+  __mb_net_pending[id] = done;
+}
+
+var __mb_file_fetch_impl = fetch;
+fetch = function (input, init) {
+  var url = typeof input === 'object' && input && input.url ? input.url : String(input);
+  var abs = typeof __mb_http === 'function' ? __mb_abs(url) : null;
+  if (!abs) return __mb_file_fetch_impl(url, init);
+  init = init || {};
+  return new Promise(function (resolve, reject) {
+    __mb_request(init.method, abs, init.body, init.headers, function (e) {
+      if (e.status === 0) reject(new TypeError('fetch failed: ' + abs + (e.error ? ' (' + e.error + ')' : '')));
+      else resolve(__mb_response(e, abs));
+    });
+  });
+};
+window.fetch = fetch;
+
+function XMLHttpRequest() {
+  this.readyState = 0; this.status = 0; this.responseText = ''; this.response = ''; this.responseType = '';
+  this._headers = {};
+}
+XMLHttpRequest.prototype.open = function (method, url) { this._method = method; this._url = String(url); this.readyState = 1; };
+XMLHttpRequest.prototype.setRequestHeader = function (k, v) { this._headers[k] = v; };
+XMLHttpRequest.prototype.getResponseHeader = function () { return null; };
+XMLHttpRequest.prototype.getAllResponseHeaders = function () { return ''; };
+XMLHttpRequest.prototype.addEventListener = function (t, fn) { this['on' + t] = fn; };
+XMLHttpRequest.prototype.removeEventListener = function () {};
+XMLHttpRequest.prototype.abort = function () { this._aborted = true; };
+XMLHttpRequest.prototype.send = function (body) {
+  var x = this;
+  var done = function (ok, status, text) {
+    if (x._aborted) return;
+    x.readyState = 4; x.status = status; x.responseText = text;
+    x.response = x.responseType === 'json' ? (function () { try { return JSON.parse(text); } catch (e) { return null; } })() : text;
+    var ev = { target: x, type: ok ? 'load' : 'error' };
+    if (x.onreadystatechange) x.onreadystatechange(ev);
+    if (ok && x.onload) x.onload(ev);
+    if (!ok && x.onerror) x.onerror(ev);
+    if (x.onloadend) x.onloadend(ev);
+  };
+  var abs = typeof __mb_http === 'function' ? __mb_abs(this._url) : null;
+  if (abs) {
+    __mb_request(this._method, abs, body, this._headers, function (e) { done(e.status !== 0, e.status, e.body || ''); });
+    return;
+  }
+  var url = this._url;
+  setTimeout(function () {
+    var text = typeof __mb_read === 'function' ? __mb_read(url) : null;
+    if (text === null || text === undefined) done(false, 404, ''); else done(true, 200, text);
+  }, 0);
+};
+XMLHttpRequest.UNSENT = 0; XMLHttpRequest.OPENED = 1; XMLHttpRequest.HEADERS_RECEIVED = 2; XMLHttpRequest.LOADING = 3; XMLHttpRequest.DONE = 4;
+window.XMLHttpRequest = XMLHttpRequest;
+
+// WebSocket (ws:// with the host's feature `net`).
+function WebSocket(url) {
+  this.url = String(url);
+  this.readyState = 0;
+  this.protocol = '';
+  this.bufferedAmount = 0;
+  this._l = {};
+  var abs = __mb_abs(this.url);
+  if (typeof __mb_ws_open !== 'function' || !abs) {
+    var me = this;
+    setTimeout(function () { me._event('error', 'no WebSocket support'); me._event('close', ''); }, 0);
+    return;
+  }
+  this._id = __mb_ws_open(abs);
+  __mb_sockets[this._id] = this;
+}
+WebSocket.CONNECTING = 0; WebSocket.OPEN = 1; WebSocket.CLOSING = 2; WebSocket.CLOSED = 3;
+WebSocket.prototype.send = function (data) { if (this.readyState === 1) __mb_ws_send(this._id, String(data)); };
+WebSocket.prototype.close = function () {
+  if (this.readyState >= 2) return;
+  this.readyState = 2;
+  if (this._id) __mb_ws_close(this._id);
+};
+WebSocket.prototype.addEventListener = function (t, fn) { (this._l[t] = this._l[t] || []).push(fn); };
+WebSocket.prototype.removeEventListener = function (t, fn) { this._l[t] = (this._l[t] || []).filter(function (f) { return f !== fn; }); };
+WebSocket.prototype._event = function (kind, data) {
+  if (kind === 'open') this.readyState = 1;
+  if (kind === 'close') { this.readyState = 3; delete __mb_sockets[this._id]; }
+  var ev = { type: kind, target: this, data: data, code: 1000, reason: '', wasClean: kind === 'close' };
+  if (kind === 'error') ev.message = data;
+  var h = this['on' + kind];
+  try { if (typeof h === 'function') h.call(this, ev); } catch (e) { console.error('WebSocket ' + kind + ': ' + e); }
+  (this._l[kind] || []).slice().forEach(function (f) { try { f.call(this, ev); } catch (e) { console.error('WebSocket ' + kind + ': ' + e); } }, this);
+};
+window.WebSocket = WebSocket;
+
 // <script src>: the file's code runs at global scope, like an inline script.
 function __mb_include(src) {
   var code = typeof __mb_read === 'function' ? __mb_read(String(src)) : null;
