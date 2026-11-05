@@ -9,9 +9,9 @@ try {
     const s = render_html('c', html);
     out.push(d + ' load nodes=' + s.nodeCount + ' boxes=' + s.boxCount + ' ms=' + s.renderTime.toFixed(1));
     if (d.startsWith('demo8')) {
-      const a = click_at('c', 45, 172), b = click_at('c', 499, 168);
+      const a = click_at('c', 50, 146), b = click_at('c', 499, 140);
       out.push('  clicks: ' + (a ? 'repaint' : 'none') + ', ' + (b ? 'repaint' : 'none'));
-      const px = document.getElementById('c').getContext('2d').getImageData(470, 160, 1, 1).data;
+      const px = document.getElementById('c').getContext('2d').getImageData(470, 130, 1, 1).data;
       out.push('  START button pixel rgb=' + px[0] + ',' + px[1] + ',' + px[2]);
     }
     if (d.startsWith('demo5')) {
