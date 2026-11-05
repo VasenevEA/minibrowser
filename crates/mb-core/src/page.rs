@@ -402,9 +402,11 @@ impl Cx<'_> {
 /// siblings makes no line box in CSS (it is collapsible white space between
 /// blocks), so it is dropped; among inline siblings it is a space and stays.
 fn laid_out_children(sn: &css::StyledNode) -> impl Iterator<Item = &css::StyledNode> {
-    let has_blocks = sn.children.iter().any(|c| {
-        matches!(c.node_type, dom::NodeType::Element(_)) && !matches!(c.display(), "inline" | "none")
-    });
+    // In a flex or grid container, blank text makes no item either.
+    let has_blocks = matches!(sn.display(), "flex" | "inline-flex" | "grid" | "inline-grid")
+        || sn.children.iter().any(|c| {
+            matches!(c.node_type, dom::NodeType::Element(_)) && !matches!(c.display(), "inline" | "none")
+        });
     sn.children.iter().filter(move |c| {
         !(has_blocks && matches!(&c.node_type, dom::NodeType::Text(t) if t.trim().is_empty()))
     })
