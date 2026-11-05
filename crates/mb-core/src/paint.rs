@@ -321,21 +321,18 @@ fn paint_image(pixmap: &mut Pixmap, layout_box: &LayoutBox, font: &FontduFont) {
             }
         }
     } else {
-        // Placeholder: draw a grey box with alt text (or "IMG")
-        let placeholder_color = Color::rgba(100, 100, 100, 180);
-        fill_rect(pixmap, cx, cy, box_w, box_h, placeholder_color, 0.0);
-
-        // Draw alt text (or "IMG") centered
-        let label = if alt.is_empty() { "IMG" } else { alt };
-        let font_size = 14.0_f32;
-        let text_w = font.measure_text(label, font_size).0;
-        let text_h = font.line_metrics(font_size).2;
-        let tx = (cx + (box_w - text_w) / 2.0).max(cx) as i32;
-        let ty = (cy + (box_h - text_h) / 2.0).max(cy) as i32;
-
+        // No image data: like browsers, show the alt text at the top left of the
+        // box (the box's own background and border are painted as usual).
+        if alt.is_empty() {
+            return;
+        }
+        let font_size = layout_box.font_size.max(1.0);
+        let c = layout_box.text_color;
+        let rgba = [c.r, c.g, c.b, (c.a as f32 * layout_box.opacity) as u8];
+        let glyph_dy = (font.baseline_in_line(font_size, font.line_metrics(font_size).2) - font_size * 0.8).round() as i32;
         let pw = pixmap.width();
         let data = pixmap.data_mut();
-        font.draw_text(data, pw, tx, ty, label, font_size, [255, 255, 255, 220]);
+        font.draw_text_in(data, pw, cx as i32, cy as i32 + glyph_dy, alt, font_size, rgba, layout_box.bold);
     }
 }
 
