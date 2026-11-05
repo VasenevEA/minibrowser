@@ -3,7 +3,7 @@ pkg/
 *.png
 !tests/pixel_results/**
 tests/ref/*.png
-target-a7
+target-*/
 www/doom/doom.js
 www/doom/doom1.wad
 __pycache__/
