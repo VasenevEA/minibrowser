@@ -501,7 +501,12 @@ impl Page {
     /// canvases drawn on, each with the picture it showed before.
     fn draw_canvases(&mut self) -> Vec<(String, Option<std::sync::Arc<Vec<u8>>>)> {
         let Some(doc) = self.document.as_mut() else { return Vec::new() };
-        let ops = std::mem::take(&mut doc.canvas_ops);
+        let mut ops = std::mem::take(&mut doc.canvas_ops);
+        for (_, op) in &mut ops {
+            if op.blob != 0 && op.data.is_empty() {
+                op.data = self.js.take_blob(op.blob).unwrap_or_default();
+            }
+        }
         let mut touched: Vec<(String, Option<std::sync::Arc<Vec<u8>>>, (u32, u32))> = Vec::new();
         for (id, op) in &ops {
             let size = match touched.iter().find(|t| &t.0 == id) {

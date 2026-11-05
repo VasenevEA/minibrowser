@@ -155,7 +155,11 @@ MockElement.prototype.getContext = function (type) {
   // Pixels are not read back from the engine: a fresh (transparent) image.
   ctx.getImageData = function (x, y, w, h) { return ctx.createImageData(w, h); };
   ctx.putImageData = function (img, x, y) {
-    op('putImageData', [x, y, img.width, img.height], { data: Array.prototype.slice.call(img.data) });
+    // Native hosts take the bytes directly (__mb_blob); others as a JSON array.
+    var d = img.data;
+    var extra = typeof __mb_blob === 'function' && d.buffer && d.byteOffset === 0 && d.byteLength === d.buffer.byteLength
+      ? { blob: __mb_blob(d.buffer) } : { data: Array.prototype.slice.call(d) };
+    op('putImageData', [x, y, img.width, img.height], extra);
   };
   ctx.setLineDash = function () {};
   ctx.drawImage = function () {};

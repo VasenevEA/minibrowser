@@ -83,6 +83,11 @@ pub trait JsHost {
     /// (`[{id, text, attrs}]` as JSON), so reads like `textContent` and
     /// `classList.contains` see the document. Hosts that cannot use it ignore it.
     fn seed(&mut self, _elements_json: &str) {}
+
+    /// Binary data a script handed over in its last run (`blob` in a command).
+    fn take_blob(&mut self, _handle: u32) -> Option<Vec<u8>> {
+        None
+    }
 }
 
 /// Runs code on the host and parses what it produced; errors are logged and yield no commands.
@@ -163,6 +168,7 @@ pub fn parse_commands(json: &str) -> Vec<DomCommand> {
                         alpha: obj.get("alpha").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32,
                         align: get("align"),
                         data,
+                        blob: obj.get("blob").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
                     },
                 })
             }

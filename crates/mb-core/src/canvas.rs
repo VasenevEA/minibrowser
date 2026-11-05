@@ -26,6 +26,8 @@ pub struct Op {
     pub align: String,
     /// putImageData's RGBA bytes.
     pub data: Vec<u8>,
+    /// The JS host's handle for `data` when it came as binary.
+    pub blob: u32,
 }
 
 pub struct Canvas {

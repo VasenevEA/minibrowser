@@ -4,7 +4,9 @@
 //! at global scope, so `var`s and functions persist between scripts, handlers and
 //! timer callbacks, as in a browser.
 
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use mb_core::JsHost;
 use rquickjs::{CatchResultExt, Context, Function, Runtime};
@@ -16,12 +18,17 @@ pub struct QuickJs {
     ctx: Context,
     /// Where `fetch` finds relative URLs (the page's directory); None: no files.
     base: Option<PathBuf>,
+    /// Binary data scripts hand over (putImageData pixels), by handle - 1.
+    blobs: Blobs,
 }
+
+type Blobs = Rc<RefCell<Vec<Vec<u8>>>>;
 
 impl QuickJs {
     pub fn new() -> Self {
-        let (rt, ctx) = fresh(None);
-        QuickJs { rt, ctx, base: None }
+        let blobs = Blobs::default();
+        let (rt, ctx) = fresh(None, blobs.clone());
+        QuickJs { rt, ctx, base: None, blobs }
     }
 
     /// A host whose `fetch` reads files: relative URLs from `base` (the page's
@@ -29,14 +36,17 @@ impl QuickJs {
     /// collector drops JSON).
     pub fn with_files(base: &Path) -> Self {
         let base = Some(base.to_path_buf());
-        let (rt, ctx) = fresh(base.clone());
-        QuickJs { rt, ctx, base }
+        let blobs = Blobs::default();
+        let (rt, ctx) = fresh(base.clone(), blobs.clone());
+        QuickJs { rt, ctx, base, blobs }
     }
 
     /// Evaluates `code` and returns the commands it queued. If it threw, the commands
     /// queued before the throw are kept, as a browser keeps their effects, and the
     /// exception is logged.
     fn eval_take(&mut self, code: &str, now: f64) -> Result<String, String> {
+        // The engine took the last run's blobs while applying its commands.
+        self.blobs.borrow_mut().clear();
         self.ctx.with(|ctx| {
             let _ = ctx.globals().set("__mb_now", now);
             if let Err(e) = ctx.eval::<(), _>(code).catch(&ctx) {
@@ -72,7 +82,7 @@ fn resolve(base: &Path, url: &str) -> Option<PathBuf> {
     allowed.iter().flatten().any(|root| real.starts_with(root)).then_some(real)
 }
 
-fn fresh(base: Option<PathBuf>) -> (Runtime, Context) {
+fn fresh(base: Option<PathBuf>, blobs: Blobs) -> (Runtime, Context) {
     let rt = Runtime::new().expect("QuickJS runtime");
     // A page must not take the panel down with it.
     rt.set_memory_limit(32 << 20);
@@ -86,6 +96,15 @@ fn fresh(base: Option<PathBuf>) -> (Runtime, Context) {
         if let Ok(read) = read {
             let _ = ctx.globals().set("__mb_read", read);
         }
+        // __mb_blob(arrayBuffer) → a handle: bytes go to the engine without JSON.
+        let blob = Function::new(ctx.clone(), move |buf: rquickjs::ArrayBuffer| -> u32 {
+            let mut b = blobs.borrow_mut();
+            b.push(buf.as_bytes().map(<[u8]>::to_vec).unwrap_or_default());
+            b.len() as u32
+        });
+        if let Ok(blob) = blob {
+            let _ = ctx.globals().set("__mb_blob", blob);
+        }
         ctx.eval::<(), _>(DOM_JS).catch(&ctx).map_err(|e| e.to_string()).expect("dom.js");
     });
     (rt, ctx)
@@ -93,7 +112,8 @@ fn fresh(base: Option<PathBuf>) -> (Runtime, Context) {
 
 impl JsHost for QuickJs {
     fn reset(&mut self) {
-        let (rt, ctx) = fresh(self.base.clone());
+        self.blobs.borrow_mut().clear();
+        let (rt, ctx) = fresh(self.base.clone(), self.blobs.clone());
         // Drop the old context before its runtime.
         self.ctx = ctx;
         self.rt = rt;
@@ -112,6 +132,11 @@ impl JsHost for QuickJs {
             let d: f64 = ctx.eval(format!("__mb_next({})", now_ms)).ok()?;
             (d >= 0.0).then_some(d)
         })
+    }
+
+    fn take_blob(&mut self, handle: u32) -> Option<Vec<u8>> {
+        let mut b = self.blobs.borrow_mut();
+        b.get_mut((handle as usize).checked_sub(1)?).map(std::mem::take)
     }
 
     fn seed(&mut self, elements_json: &str) {

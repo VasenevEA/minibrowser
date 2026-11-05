@@ -1,0 +1,29 @@
+<!doctype html><html><body style="margin:0;background:#000;color:#e8edf5;font-family:sans-serif">
+<canvas id="screen" width="320" height="200" style="width:640px;height:400px;margin:20px 80px"></canvas>
+<div id="fps" style="position:absolute;left:8px;top:4px;font-size:12px;color:#7c899e">—</div>
+<script>
+// A 320x200 frame buffer filled from JS every frame (as a game would), shown
+// scaled 2x: the putImageData path a Doom port needs.
+var c = document.getElementById('screen'), ctx = c.getContext('2d');
+var img = ctx.createImageData(320, 200), px = img.data;
+var pal = [];
+for (var i = 0; i < 256; i++) pal.push([128 + 127 * Math.sin(i * Math.PI / 32), 128 + 127 * Math.sin(i * Math.PI / 64 + 2), 128 + 127 * Math.sin(i * Math.PI / 128 + 4)]);
+var sinT = []; for (var i = 0; i < 1024; i++) sinT.push(Math.sin(i * Math.PI / 512));
+var frames = 0, fpsAt = 0;
+function frame(now) {
+  var t = (now / 16) | 0, o = 0;
+  for (var y = 0; y < 200; y++) {
+    var sy = sinT[(y * 5 + t * 3) & 1023];
+    for (var x = 0; x < 320; x++) {
+      var v = (sinT[(x * 4 + t * 2) & 1023] + sy + sinT[((x + y) * 3 + t) & 1023]) * 42 + 128;
+      var p = pal[v & 255];
+      px[o] = p[0]; px[o + 1] = p[1]; px[o + 2] = p[2]; px[o + 3] = 255; o += 4;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  frames++;
+  if (now - fpsAt >= 1000) { document.getElementById('fps').textContent = frames + ' fps'; frames = 0; fpsAt = now; }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script></body></html>
