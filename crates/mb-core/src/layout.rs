@@ -111,6 +111,8 @@ pub struct LayoutBox {
     pub grid_gap: f32,
     /// `font-weight` 600 and up: text uses the bold face.
     pub bold: bool,
+    /// Per-side border colours (top, right, bottom, left) over `border_color`.
+    pub border_side_colors: [Option<Color>; 4],
     /// `box-sizing: border-box`: percentage sizes include padding and border.
     pub border_box: bool,
 }
@@ -187,6 +189,8 @@ pub struct StyledNode {
     pub grid_gap: f32,
     /// `font-weight` 600 and up: text uses the bold face.
     pub bold: bool,
+    /// Per-side border colours (top, right, bottom, left) over `border_color`.
+    pub border_side_colors: [Option<Color>; 4],
     /// `box-sizing: border-box`: percentage sizes include padding and border.
     pub border_box: bool,
     /// Flex container and item properties (used by the Taffy layout only).
@@ -360,6 +364,7 @@ impl StyledNode {
             grid_template_columns: Vec::new(),
             grid_gap: 0.0,
             bold: false,
+            border_side_colors: [None; 4],
             border_box: false,
             flex: FlexProps::default(),
             grid: GridProps::default(),
@@ -398,6 +403,7 @@ impl StyledNode {
             grid_template_columns: Vec::new(),
             grid_gap: 0.0,
             bold: false,
+            border_side_colors: [None; 4],
             border_box: false,
             flex: FlexProps::default(),
             grid: GridProps::default(),
@@ -484,6 +490,7 @@ pub(crate) fn build_layout_box(node: &StyledNode) -> LayoutBox {
             grid_template_columns: Vec::new(),
             grid_gap: 0.0,
             bold: false,
+            border_side_colors: [None; 4],
             border_box: false,
         };
     }
@@ -545,6 +552,7 @@ pub(crate) fn build_layout_box(node: &StyledNode) -> LayoutBox {
         grid_template_columns: node.grid_template_columns.clone(),
         grid_gap: node.grid_gap,
         bold: node.bold,
+        border_side_colors: node.border_side_colors,
         border_box: node.border_box,
     }
 }

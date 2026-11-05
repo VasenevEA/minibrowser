@@ -262,6 +262,7 @@ fn style_of(n: &StyledNode, root: bool) -> Style {
         (BoxSizing::ContentBox, n.width, n.height)
     };
     let margin_left = if n.margin.left >= f32::MAX / 4.0 { auto() } else { length(n.margin.left) };
+    let margin_right = if n.margin.right >= f32::MAX / 4.0 { auto() } else { length(n.margin.right) };
     let (position, inset) = match n.position {
         layout::Position::Absolute | layout::Position::Fixed => (
             Position::Absolute,
@@ -291,7 +292,7 @@ fn style_of(n: &StyledNode, root: bool) -> Style {
         inset,
         size: Size { width: if root { percent(1.0) } else { dim(width) }, height: dim(height) },
         min_size: Size { width: auto(), height: lpa(n.min_height) },
-        margin: taffy::Rect { left: margin_left, right: length(n.margin.right), top: length(n.margin.top), bottom: length(n.margin.bottom) },
+        margin: taffy::Rect { left: margin_left, right: margin_right, top: length(n.margin.top), bottom: length(n.margin.bottom) },
         padding: taffy::Rect { left: e(n.padding.left), right: e(n.padding.right), top: e(n.padding.top), bottom: e(n.padding.bottom) },
         border: taffy::Rect { left: e(n.border.left), right: e(n.border.right), top: e(n.border.top), bottom: e(n.border.bottom) },
         gap: if n.display == layout::Display::Grid {

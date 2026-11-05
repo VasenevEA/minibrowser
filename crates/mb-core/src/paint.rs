@@ -110,21 +110,22 @@ fn paint_borders(pixmap: &mut Pixmap, layout_box: &LayoutBox) {
         + layout_box.padding.bottom
         + b.bottom;
 
+    let side = |i: usize| layout_box.border_side_colors[i].unwrap_or(color);
     // Top border
     if b.top > 0.0 {
-        fill_rect(pixmap, bx, by, outer_w, b.top, color, 0.0);
+        fill_rect(pixmap, bx, by, outer_w, b.top, side(0), 0.0);
     }
     // Bottom border
     if b.bottom > 0.0 {
-        fill_rect(pixmap, bx, by + outer_h - b.bottom, outer_w, b.bottom, color, 0.0);
+        fill_rect(pixmap, bx, by + outer_h - b.bottom, outer_w, b.bottom, side(2), 0.0);
     }
     // Left border
     if b.left > 0.0 {
-        fill_rect(pixmap, bx, by, b.left, outer_h, color, 0.0);
+        fill_rect(pixmap, bx, by, b.left, outer_h, side(3), 0.0);
     }
     // Right border
     if b.right > 0.0 {
-        fill_rect(pixmap, bx + outer_w - b.right, by, b.right, outer_h, color, 0.0);
+        fill_rect(pixmap, bx + outer_w - b.right, by, b.right, outer_h, side(1), 0.0);
     }
 }
 

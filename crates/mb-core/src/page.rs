@@ -749,7 +749,11 @@ fn convert_styled(sn: &css::StyledNode, cx: &mut Cx) -> layout::StyledNode {
         height: adj_height,
         margin: layout::EdgeSizes {
             top: get_length_or_shorthand("margin-top", "margin", 0.0),
-            right: get_length_or_shorthand("margin-right", "margin", 0.0),
+            right: match sn.get("margin-right").or_else(|| sn.get("margin")) {
+                // auto: the same sentinel as margin-left (only the Taffy layout reads it)
+                Some(CSSValue::Auto) => f32::MAX / 2.0,
+                _ => get_length_or_shorthand("margin-right", "margin", 0.0),
+            },
             bottom: get_length_or_shorthand("margin-bottom", "margin", 0.0),
             left: {
                 // margin-left: auto → sentinel value for flex auto-margin
@@ -827,6 +831,10 @@ fn convert_styled(sn: &css::StyledNode, cx: &mut Cx) -> layout::StyledNode {
         offset_left: get_length("left", 0.0),
         grid_template_columns: parse_grid_template_columns(sn),
         grid_gap: get_length("grid-gap", get_length("gap", 0.0)),
+        border_side_colors: ["top", "right", "bottom", "left"].map(|side| match sn.get(&format!("border-{side}-color")) {
+            Some(CSSValue::Color(r, g, b, a)) => Some(layout::Color { r: *r, g: *g, b: *b, a: *a }),
+            _ => None,
+        }),
         bold: match sn.get("font-weight") {
             Some(CSSValue::Keyword(k)) => matches!(k.as_str(), "bold" | "bolder")
                 || k.parse::<f32>().map_or(false, |w| w >= 600.0),

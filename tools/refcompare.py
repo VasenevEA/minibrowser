@@ -24,7 +24,28 @@ TOL = 24  # per-channel difference still counted as equal (antialiasing)
 SHIFT = 2  # pixels a feature may be off and still count
 
 
+def window_extra():
+    """Rows headless Chrome takes from --window-size for itself (the viewport is
+    shorter than the window): measured once with a page of known height."""
+    with tempfile.TemporaryDirectory() as d:
+        page, shot = os.path.join(d, "vp.html"), os.path.join(d, "vp.png")
+        open(page, "w").write('<!doctype html><body style="margin:0;background:#f00">'
+                              '<div style="height:2000px;background:#00f"></div>')
+        subprocess.run([CHROME, "--headless=new", "--disable-gpu", "--hide-scrollbars",
+                        "--force-device-scale-factor=1", f"--window-size={W},{H}",
+                        f"--screenshot={shot}", "file://" + page], capture_output=True, timeout=60, check=True)
+        im = Image.open(shot).convert("RGB")
+        blue = sum(1 for y in range(im.height) if im.getpixel((W // 2, y)) == (0, 0, 255))
+        return im.height - blue
+
+
+EXTRA = None
+
+
 def chrome(page, out):
+    global EXTRA
+    if EXTRA is None:
+        EXTRA = window_extra()
     html = open(page, encoding="utf-8").read()
     font = ("<style>@font-face{font-family:MBDejaVu;font-weight:400;src:url('file://%s')}"
             "@font-face{font-family:MBDejaVu;font-weight:700;src:url('file://%s')}"
@@ -38,7 +59,7 @@ def chrome(page, out):
     try:
         subprocess.run([CHROME, "--headless=new", "--disable-gpu", "--hide-scrollbars",
                         "--force-device-scale-factor=1", "--allow-file-access-from-files",
-                        "--virtual-time-budget=2000", f"--window-size={W},{H}",
+                        "--virtual-time-budget=2000", f"--window-size={W},{H + EXTRA}",
                         f"--screenshot={out}", "file://" + tmp],
                        capture_output=True, timeout=60, check=True)
     finally:

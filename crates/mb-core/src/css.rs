@@ -254,6 +254,15 @@ pub fn parse_inline_style(style: &str) -> StyleMap {
             for (k, v) in expanded {
                 map.insert(k, v);
             }
+        } else if let Some(side) = name.strip_prefix("border-").filter(|s| matches!(*s, "top" | "right" | "bottom" | "left")) {
+            // border-<side>: <width> <style> <color>, for that side only.
+            for (k, v) in parse_border_shorthand(&value_str) {
+                if k == format!("border-{side}-width") {
+                    map.insert(k, v);
+                } else if k == "border-color" {
+                    map.insert(format!("border-{side}-color"), v);
+                }
+            }
         } else if name == "background" {
             // background shorthand: extract color and store as background-color
             if let Some(val) = parse_property_value(&name, &value_str) {
@@ -284,7 +293,7 @@ pub fn parse_inline_style(style: &str) -> StyleMap {
 fn expand_box_shorthand(property: &str, value: &str) -> Vec<(String, CSSValue)> {
     let parts: Vec<&str> = value.split_whitespace().collect();
     let values: Vec<CSSValue> = parts.iter()
-        .filter_map(|p| parse_length(p))
+        .filter_map(|p| if *p == "auto" { Some(CSSValue::Auto) } else { parse_length(p) })
         .collect();
 
     if values.is_empty() {
@@ -356,7 +365,8 @@ fn parse_property_value(property: &str, value: &str) -> Option<CSSValue> {
 
     match property {
         // Color properties
-        "color" | "background-color" | "border-color" => parse_color(value),
+        "color" | "background-color" | "border-color" | "border-top-color" | "border-right-color"
+        | "border-bottom-color" | "border-left-color" => parse_color(value),
 
         // background shorthand: extract just the color part
         "background" => parse_color(value),
