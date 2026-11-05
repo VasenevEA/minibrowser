@@ -730,6 +730,8 @@ fn convert_styled(sn: &css::StyledNode, cx: &mut Cx) -> layout::StyledNode {
         _ => layout::Color { r: 0, g: 0, b: 0, a: 0 },
     });
 
+    // An empty input shows its placeholder, dimmed like browsers' ::placeholder.
+    let mut showing_placeholder = false;
     let content = match &sn.node_type {
         dom::NodeType::Text(s) => layout::NodeContent::Text(s.clone()),
         dom::NodeType::Element(data) => {
@@ -756,6 +758,7 @@ fn convert_styled(sn: &css::StyledNode, cx: &mut Cx) -> layout::StyledNode {
                         if placeholder.is_empty() {
                             layout::NodeContent::Element
                         } else {
+                            showing_placeholder = true;
                             layout::NodeContent::Text(placeholder)
                         }
                     }
@@ -864,7 +867,10 @@ fn convert_styled(sn: &css::StyledNode, cx: &mut Cx) -> layout::StyledNode {
             left: get_length_or_shorthand("border-left-width", "border-width", 0.0),
         },
         background_color: bg,
-        text_color: get_color("color", layout::Color { r: 0, g: 0, b: 0, a: 255 }),
+        text_color: {
+            let c = get_color("color", layout::Color { r: 0, g: 0, b: 0, a: 255 });
+            if showing_placeholder { layout::Color { a: (c.a as f32 * 0.55) as u8, ..c } } else { c }
+        },
         border_color: sn.get("border-color").map(|v| match v {
             CSSValue::Color(r, g, b, a) => layout::Color { r: *r, g: *g, b: *b, a: *a },
             _ => layout::Color::BLACK,

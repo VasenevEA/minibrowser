@@ -439,10 +439,6 @@ fn measure_text_width(text: &str, font_size: f32, bold: bool) -> f32 {
     crate::font::FontduFont::shared().measure_text_in(text, font_size, bold)
 }
 
-/// Single character width via fontdue.
-fn estimated_char_width(font_size: f32) -> f32 {
-    measure_text_width("M", font_size, false)
-}
 
 // ---------------------------------------------------------------------------
 // Layout algorithm
@@ -1015,7 +1011,7 @@ impl LayoutBox {
                 }
             }
             let line_gap_total = gap * (line.len() as f32 - 1.0).max(0.0);
-            let total_desired = explicit_total + line_gap_total;
+            let _total_desired = explicit_total + line_gap_total;
 
             // Flex-shrink: when items with positive desired widths overflow
             // the container, shrink them proportionally (CSS flex-shrink: 1 default).
@@ -1463,7 +1459,7 @@ impl LayoutBox {
     // -----------------------------------------------------------------------
     // Image layout
     // -----------------------------------------------------------------------
-    fn layout_image(&mut self, cx: f32, cy: f32, containing_width: f32) {
+    fn layout_image(&mut self, cx: f32, cy: f32, _containing_width: f32) {
         self.x = cx;
         self.y = cy;
 
