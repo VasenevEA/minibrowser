@@ -269,11 +269,9 @@ fn style_of(n: &StyledNode, root: bool) -> Style {
     let (position, inset) = match n.position {
         layout::Position::Absolute | layout::Position::Fixed => (
             Position::Absolute,
-            taffy::Rect {
-                left: if n.offset_left != 0.0 { length(n.offset_left) } else { auto() },
-                top: if n.offset_top != 0.0 { length(n.offset_top) } else { auto() },
-                right: auto(),
-                bottom: auto(),
+            {
+                let side = |v: Option<f32>| v.map(length).unwrap_or(auto());
+                taffy::Rect { top: side(n.inset[0]), right: side(n.inset[1]), bottom: side(n.inset[2]), left: side(n.inset[3]) }
             },
         ),
         layout::Position::Relative => (

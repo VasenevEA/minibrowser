@@ -65,6 +65,25 @@ fn main() {
         page.tick(now);
     }
 
+    // MB_CHECK=1: compare the incrementally repainted pixels with a fresh full paint.
+    if std::env::var_os("MB_CHECK").is_some() {
+        if let (Some(root), Some(px)) = (page.layout_tree(), page.viewport_slice()) {
+            let fresh = mb_core::paint::paint(root, w, h);
+            let bad: Vec<usize> = (0..px.len() / 4).filter(|&i| (0..3).any(|c| px[i * 4 + c].abs_diff(fresh[i * 4 + c]) > 2)).collect();
+            eprintln!("check: {} pixels differ from a full paint", bad.len());
+            fn boxes(b: &mb_core::layout::LayoutBox, d: usize) {
+                if b.border.top > 0.0 || b.background_color.is_some() {
+                    eprintln!("{:d$}box y={} h={} bt={} r={} bg={:?}", "", b.y + b.margin.top, b.height, b.border.top, b.border_radius, b.background_color.map(|c| (c.r, c.g, c.b)), d = d);
+                }
+                for c in &b.children { boxes(c, d + 1) }
+            }
+            if std::env::var_os("MB_CHECK_BOXES").is_some() { boxes(root, 0) }
+            for &i in bad.iter().take(8) {
+                let (x, y) = (i as u32 % w, i as u32 / w);
+                eprintln!("  {x},{y}: {:?} vs {:?}", &px[i * 4..i * 4 + 3], &fresh[i * 4..i * 4 + 3]);
+            }
+        }
+    }
     if dump {
         print!("{}", page.dump_layout());
     }

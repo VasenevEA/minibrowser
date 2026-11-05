@@ -429,8 +429,14 @@ fn fill_rect(pixmap: &mut PixmapMut, x: f32, y: f32, w: f32, h: f32, color: Colo
         let mut paint = Paint::default();
         paint.set_color_rgba8(color.r, color.g, color.b, color.a);
         paint.anti_alias = false;
-        let (x0, y0) = (x.max(clip.x0 as f32), y.max(clip.y0 as f32));
-        let (x1, y1) = ((x + w).min(clip.x1 as f32), (y + h).min(clip.y1 as f32));
+        // Snap to pixels before clipping, so a damage-rect repaint covers the
+        // same pixels as the full paint at fractional coordinates.
+        let (x0, y0) = (x.round().max(clip.x0 as f32), y.round().max(clip.y0 as f32));
+        let (x1, y1) = ((x + w).round().min(clip.x1 as f32), (y + h).round().min(clip.y1 as f32));
+        // tiny-skia fills a row or column for an empty rectangle.
+        if x1 <= x0 || y1 <= y0 {
+            return;
+        }
         if let Some(rect) = tiny_skia::Rect::from_ltrb(x0, y0, x1, y1) {
             pixmap.fill_rect(rect, &paint, Transform::identity(), None);
         }

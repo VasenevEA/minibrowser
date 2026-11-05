@@ -422,6 +422,14 @@ impl Page {
                 for r in &rects {
                     paint::repaint(&mut self.pixels, page_w, page_h, &layout_root, *r);
                 }
+                if std::env::var_os("MB_CHECK_FRAMES").is_some() {
+                    let fresh = paint::paint(&layout_root, page_w, page_h);
+                    let bad = (0..fresh.len() / 4).filter(|&i| (0..3).any(|c| fresh[i * 4 + c].abs_diff(self.pixels[i * 4 + c]) > 2)).collect::<Vec<_>>();
+                    if !bad.is_empty() {
+                        let i = bad[0] as u32;
+                        eprintln!("frame diverges: {} px, first {},{}; rects {:?}", bad.len(), i % page_w, i / page_w, rects);
+                    }
+                }
                 self.damage.extend(rects);
             }
             None => {
@@ -974,6 +982,10 @@ fn convert_styled(sn: &css::StyledNode, cx: &mut Cx) -> layout::StyledNode {
         },
         offset_top: get_length("top", 0.0),
         offset_left: get_length("left", 0.0),
+        inset: ["top", "right", "bottom", "left"].map(|k| match sn.get(k) {
+            Some(CSSValue::Length(n, _)) | Some(CSSValue::Number(n)) => Some(*n),
+            _ => None,
+        }),
         grid_template_columns: parse_grid_template_columns(sn),
         grid_gap: get_length("grid-gap", get_length("gap", 0.0)),
         overflow_hidden: matches!(get_str("overflow").as_str(), "hidden" | "clip" | "auto" | "scroll"),

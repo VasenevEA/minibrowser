@@ -107,6 +107,8 @@ pub struct LayoutBox {
     pub position: Position,
     pub offset_top: f32,
     pub offset_left: f32,
+    /// top/right/bottom/left as given (None: auto), for Taffy's absolute placement.
+    pub inset: [Option<f32>; 4],
     pub grid_template_columns: Vec<GridTrack>,
     pub grid_gap: f32,
     /// `font-weight` 600 and up: text uses the bold face.
@@ -187,6 +189,8 @@ pub struct StyledNode {
     pub text_decoration: TextDecoration,
     pub offset_top: f32,
     pub offset_left: f32,
+    /// top/right/bottom/left as given (None: auto), for Taffy's absolute placement.
+    pub inset: [Option<f32>; 4],
     pub grid_template_columns: Vec<GridTrack>,
     pub grid_gap: f32,
     /// `font-weight` 600 and up: text uses the bold face.
@@ -369,6 +373,7 @@ impl StyledNode {
             text_decoration: TextDecoration::None,
             offset_top: 0.0,
             offset_left: 0.0,
+            inset: [None; 4],
             grid_template_columns: Vec::new(),
             grid_gap: 0.0,
             bold: false,
@@ -412,6 +417,7 @@ impl StyledNode {
             text_decoration: TextDecoration::None,
             offset_top: 0.0,
             offset_left: 0.0,
+            inset: [None; 4],
             grid_template_columns: Vec::new(),
             grid_gap: 0.0,
             bold: false,
@@ -499,6 +505,7 @@ pub(crate) fn build_layout_box(node: &StyledNode) -> LayoutBox {
             position: Position::Static,
             offset_top: 0.0,
             offset_left: 0.0,
+            inset: [None; 4],
             grid_template_columns: Vec::new(),
             grid_gap: 0.0,
             bold: false,
@@ -562,6 +569,7 @@ pub(crate) fn build_layout_box(node: &StyledNode) -> LayoutBox {
         position: node.position,
         offset_top: node.offset_top,
         offset_left: node.offset_left,
+        inset: node.inset,
         grid_template_columns: node.grid_template_columns.clone(),
         grid_gap: node.grid_gap,
         bold: node.bold,
