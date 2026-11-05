@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  body { margin: 0; background: #0b1220; color: #e5e7eb; font: 15px sans-serif; }
+  .app { padding: 14px 18px; }
+  h1 { margin: 0 0 10px; font-size: 20px; color: #a78bfa; }
+  .row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+  button { background: #312e81; color: #e0e7ff; border: 0; border-radius: 6px; padding: 8px 14px; font-size: 15px; }
+  .big { font-size: 40px; font-weight: bold; color: #fbbf24; min-width: 90px; }
+  ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  li { background: #1f2937; border-radius: 8px; padding: 10px 12px; display: flex; justify-content: space-between; }
+  li.done { background: #064e3b; text-decoration: line-through; color: #6ee7b7; }
+  .muted { color: #9ca3af; font-size: 13px; }
+</style>
+<script src="vendor/preact.umd.js"></script>
+<script src="vendor/hooks.umd.js"></script>
+</head>
+<body><div id="root"></div>
+<script>
+  const { h, render } = preact;
+  const { useState, useEffect } = preactHooks;
+
+  function Clock() {
+    const [t, setT] = useState(0);
+    useEffect(() => { const id = setInterval(() => setT(x => x + 1), 1000); return () => clearInterval(id); }, []);
+    return h('span', { class: 'muted' }, 'тиков таймера: ' + t);
+  }
+
+  function App() {
+    const [count, setCount] = useState(3);
+    const [tasks, setTasks] = useState([
+      { id: 1, text: 'Проверить насос', done: true },
+      { id: 2, text: 'Сменить фильтр', done: false },
+      { id: 3, text: 'Записать показания', done: false },
+    ]);
+    const toggle = id => setTasks(ts => ts.map(t => t.id === id ? { ...t, done: !t.done } : t));
+    const add = () => setTasks(ts => [...ts, { id: ts.length + 1, text: 'Задача ' + (ts.length + 1), done: false }]);
+    const done = tasks.filter(t => t.done).length;
+    return h('div', { class: 'app' },
+      h('h1', null, 'Preact 10 в MiniBrowser'),
+      h('div', { class: 'row' },
+        h('button', { onClick: () => setCount(c => c - 1) }, '−'),
+        h('div', { class: 'big' }, count),
+        h('button', { onClick: () => setCount(c => c + 1) }, '+'),
+        h('button', { onClick: add }, '+ задача'),
+        h(Clock)),
+      h('div', { class: 'muted', style: { marginBottom: '8px' } }, 'выполнено ' + done + ' из ' + tasks.length),
+      h('ul', null, tasks.map(t =>
+        h('li', { key: t.id, class: t.done ? 'done' : '', onClick: () => toggle(t.id) },
+          h('span', null, t.text), h('span', null, t.done ? '✓' : '○')))));
+  }
+  render(h(App), document.getElementById('root'));
+</script>
+</body></html>
