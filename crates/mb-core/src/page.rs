@@ -326,11 +326,13 @@ impl Page {
     fn render(&mut self) {
         let Some(document) = self.document.as_ref() else { return };
         self.pending_images.clear();
+        let mut phases = Phases::start();
 
         let mut styled = css::resolve_styles(document);
         if self.quirks {
             css::apply_body_margin_quirk(&mut styled);
         }
+        phases.mark("style");
         let mut cx = Cx {
             focused: self.focused_input.as_deref(),
             images: &self.images,
@@ -343,6 +345,7 @@ impl Page {
             LayoutEngine::Taffy => crate::layout_taffy::layout_tree(&layout_input, self.width as f32, self.height as f32),
         };
 
+        phases.mark("layout");
         let total_height = layout_root.margin_box_height().max(self.height as f32);
         let total_width = layout_root.margin_box_width().max(self.width as f32);
 
@@ -353,6 +356,8 @@ impl Page {
         self.page_w = (total_width as u32).max(self.width).min(4000);
         self.page_h = (total_height as u32).min(8000).max(self.height);
         self.pixels = paint::paint(&layout_root, self.page_w, self.page_h);
+        phases.mark("paint");
+        phases.report();
         self.layout = Some(layout_root);
         self.stats = Stats {
             node_count: count_nodes(&document.root),
@@ -370,6 +375,41 @@ fn is_quirks(html: &str) -> bool {
         (Some(d), Some(e)) => d > e,
         (Some(_), None) => false,
         (None, _) => true,
+    }
+}
+
+/// Per-phase render timings, logged when MB_TRACE is set (native builds only:
+/// wasm32 has no clock in std).
+struct Phases {
+    #[cfg(not(target_arch = "wasm32"))]
+    at: Option<(std::time::Instant, Vec<(&'static str, f64)>)>,
+}
+
+impl Phases {
+    fn start() -> Self {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let on = std::env::var_os("MB_TRACE").is_some();
+            Phases { at: on.then(|| (std::time::Instant::now(), Vec::new())) }
+        }
+        #[cfg(target_arch = "wasm32")]
+        Phases {}
+    }
+
+    fn mark(&mut self, _name: &'static str) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some((t, v)) = self.at.as_mut() {
+            v.push((_name, t.elapsed().as_secs_f64() * 1000.0));
+            *t = std::time::Instant::now();
+        }
+    }
+
+    fn report(&self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some((_, v)) = &self.at {
+            let parts: Vec<String> = v.iter().map(|(n, ms)| format!("{n} {ms:.1}")).collect();
+            eprintln!("render: {} ms", parts.join(", "));
+        }
     }
 }
 
