@@ -4,6 +4,7 @@
 //! Linux framebuffer, `mb-headless` for PNG files) drive a [`page::Page`] and
 //! supply a [`js_engine::JsHost`].
 
+pub mod canvas;
 pub mod css;
 pub mod damage;
 pub mod dom;

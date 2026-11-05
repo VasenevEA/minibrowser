@@ -106,7 +106,7 @@ impl DomSink {
     fn into_document(self) -> Document {
         let arena = self.arena.into_inner();
         let root = Self::build_node(&arena, self.document_handle);
-        Document { root }
+        Document { root, canvas_ops: Vec::new() }
     }
 
     /// Recursively build an owned `Node` from the arena.

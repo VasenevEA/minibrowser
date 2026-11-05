@@ -26,14 +26,9 @@ pub enum DomCommand {
     SetInnerHtmlById { id: String, html: String },
     /// Console.log output (informational, not a DOM change).
     ConsoleLog { message: String },
-    /// Canvas 2D: fill a rectangle.
-    CanvasFillRect { id: String, x: f32, y: f32, w: f32, h: f32, color: String },
-    /// Canvas 2D: stroke a rectangle.
-    CanvasStrokeRect { id: String, x: f32, y: f32, w: f32, h: f32, color: String },
-    /// Canvas 2D: fill text.
-    CanvasFillText { id: String, text: String, x: f32, y: f32, color: String, font: String },
-    /// Canvas 2D: clear a rectangle.
-    CanvasClearRect { id: String, x: f32, y: f32, w: f32, h: f32 },
+    /// A canvas 2D drawing call on the canvas with this id (the page draws it;
+    /// the DOM is not changed).
+    Canvas { id: String, op: crate::canvas::Op },
 }
 
 // ---------------------------------------------------------------------------
@@ -148,22 +143,46 @@ pub fn parse_commands(json: &str) -> Vec<DomCommand> {
             "ConsoleLog" => cmds.push(DomCommand::ConsoleLog {
                 message: get("message"),
             }),
-            "CanvasFillRect" => cmds.push(DomCommand::CanvasFillRect {
-                id: get("id"), x: get_f32("x"), y: get_f32("y"),
-                w: get_f32("w"), h: get_f32("h"), color: get("color"),
-            }),
-            "CanvasStrokeRect" => cmds.push(DomCommand::CanvasStrokeRect {
-                id: get("id"), x: get_f32("x"), y: get_f32("y"),
-                w: get_f32("w"), h: get_f32("h"), color: get("color"),
-            }),
-            "CanvasFillText" => cmds.push(DomCommand::CanvasFillText {
-                id: get("id"), text: get("text"), x: get_f32("x"),
-                y: get_f32("y"), color: get("color"), font: get("font"),
-            }),
-            "CanvasClearRect" => cmds.push(DomCommand::CanvasClearRect {
-                id: get("id"), x: get_f32("x"), y: get_f32("y"),
-                w: get_f32("w"), h: get_f32("h"),
-            }),
+            "Canvas" => {
+                let nums = |key: &str| -> Vec<f32> {
+                    obj.get(key).and_then(|v| v.as_array()).map(|a| a.iter().map(|n| n.as_f64().unwrap_or(0.0) as f32).collect()).unwrap_or_default()
+                };
+                let data = match obj.get("data") {
+                    Some(serde_json::Value::Array(a)) => a.iter().map(|n| n.as_u64().unwrap_or(0).min(255) as u8).collect(),
+                    _ => Vec::new(),
+                };
+                cmds.push(DomCommand::Canvas {
+                    id: get("id"),
+                    op: crate::canvas::Op {
+                        op: get("op"),
+                        args: nums("args"),
+                        style: get("style"),
+                        text: get("text"),
+                        font: get("font"),
+                        line_width: obj.get("lineWidth").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32,
+                        alpha: obj.get("alpha").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32,
+                        align: get("align"),
+                        data,
+                    },
+                })
+            }
+            // The older per-call commands (the browser build's JS host).
+            "CanvasFillRect" | "CanvasStrokeRect" | "CanvasClearRect" | "CanvasFillText" => {
+                let (op, args) = match cmd_type.as_str() {
+                    "CanvasFillText" => ("fillText", vec![get_f32("x"), get_f32("y")]),
+                    t => (
+                        match t { "CanvasFillRect" => "fillRect", "CanvasStrokeRect" => "strokeRect", _ => "clearRect" },
+                        vec![get_f32("x"), get_f32("y"), get_f32("w"), get_f32("h")],
+                    ),
+                };
+                cmds.push(DomCommand::Canvas {
+                    id: get("id"),
+                    op: crate::canvas::Op {
+                        op: op.into(), args, style: get("color"), text: get("text"), font: get("font"),
+                        line_width: 1.0, alpha: 1.0, ..Default::default()
+                    },
+                })
+            }
             _ => {}
         }
     }
@@ -196,22 +215,7 @@ pub fn apply_commands(doc: &mut Document, commands: &[DomCommand]) {
             DomCommand::ConsoleLog { message } => {
                 log::info!("[page JS] {}", message);
             }
-            DomCommand::CanvasFillRect { id, x, y, w, h, color } => {
-                let json = format!(r#"{{"cmd":"fillRect","x":{},"y":{},"w":{},"h":{},"color":"{}"}}"#, x, y, w, h, color);
-                append_canvas_cmd(&mut doc.root, id, &json);
-            }
-            DomCommand::CanvasStrokeRect { id, x, y, w, h, color } => {
-                let json = format!(r#"{{"cmd":"strokeRect","x":{},"y":{},"w":{},"h":{},"color":"{}"}}"#, x, y, w, h, color);
-                append_canvas_cmd(&mut doc.root, id, &json);
-            }
-            DomCommand::CanvasFillText { id, text, x, y, color, font } => {
-                let json = format!(r#"{{"cmd":"fillText","text":"{}","x":{},"y":{},"color":"{}","font":"{}"}}"#, text, x, y, color, font);
-                append_canvas_cmd(&mut doc.root, id, &json);
-            }
-            DomCommand::CanvasClearRect { id, x, y, w, h } => {
-                let json = format!(r#"{{"cmd":"clearRect","x":{},"y":{},"w":{},"h":{}}}"#, x, y, w, h);
-                append_canvas_cmd(&mut doc.root, id, &json);
-            }
+            DomCommand::Canvas { id, op } => doc.canvas_ops.push((id.clone(), op.clone())),
         }
     }
 }
@@ -332,32 +336,6 @@ fn set_attribute_by_id(node: &mut Node, id: &str, name: &str, value: &str) {
     }
 }
 
-/// Append a canvas drawing command (as JSON) to the `data-canvas-cmds` attribute.
-/// Stores commands as a JSON array string, e.g. `[{...},{...}]`.
-fn append_canvas_cmd(node: &mut Node, id: &str, cmd_json: &str) {
-    if let NodeType::Element(ref mut data) = node.node_type {
-        if data.id() == Some(id) {
-            let attr = data
-                .attributes
-                .entry("data-canvas-cmds".to_string())
-                .or_insert_with(|| "[]".to_string());
-            // Insert before the closing ']'
-            if attr == "[]" {
-                *attr = format!("[{}]", cmd_json);
-            } else {
-                // Remove trailing ']', append comma + new cmd + ']'
-                attr.pop(); // remove ']'
-                attr.push(',');
-                attr.push_str(cmd_json);
-                attr.push(']');
-            }
-            return;
-        }
-    }
-    for child in &mut node.children {
-        append_canvas_cmd(child, id, cmd_json);
-    }
-}
 
 /// Convert a camelCase string to kebab-case (e.g. `marginTop` → `margin-top`).
 fn camel_to_kebab(s: &str) -> String {

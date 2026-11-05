@@ -82,6 +82,7 @@ pub struct Page {
     svg: crate::svg::SvgCache,
     /// The styled tree of the last full render, for repaints that skip styling.
     styled: Option<css::StyledNode>,
+    canvases: crate::canvas::Canvases,
 }
 
 impl Page {
@@ -109,6 +110,7 @@ impl Page {
             seeded: std::collections::HashSet::new(),
             svg: crate::svg::SvgCache::default(),
             styled: None,
+            canvases: crate::canvas::Canvases::default(),
         }
     }
 
@@ -119,12 +121,14 @@ impl Page {
         self.quirks = is_quirks(html);
         let mut doc = html_parser::parse_html(html);
         self.seeded.clear();
+        self.canvases.clear();
         self.seed_js(&doc);
         let script_count = js_engine::execute_scripts(&mut doc, self.js.as_mut(), self.now_ms);
         if script_count > 0 {
             log::info!("Executed {} script(s), DOM updated", script_count);
         }
         self.document = Some(doc);
+        self.draw_canvases();
         self.focused_input = None;
         self.scroll_x = 0.0;
         self.scroll_y = 0.0;
@@ -167,7 +171,8 @@ impl Page {
             return false;
         }
         self.seed_new();
-        if !self.update_svg_only(&cmds) {
+        let canvases = self.draw_canvases();
+        if !self.update_drawings_only(&cmds, &canvases) {
             self.render();
         }
         true
@@ -217,7 +222,8 @@ impl Page {
         );
         let cmds = js_engine::execute_onclick(doc, self.js.as_mut(), &code, self.now_ms);
         self.seed_new();
-        if !self.update_svg_only(&cmds) {
+        let canvases = self.draw_canvases();
+        if !self.update_drawings_only(&cmds, &canvases) {
             self.render();
         }
         true
@@ -389,7 +395,7 @@ impl Page {
     /// needle's transform, a level's height) change no style and no layout: the
     /// drawings are redrawn into their boxes and only those are repainted. Returns
     /// false, having changed nothing visible, when the commands need a full render.
-    fn update_svg_only(&mut self, cmds: &[js_engine::DomCommand]) -> bool {
+    fn update_drawings_only(&mut self, cmds: &[js_engine::DomCommand], canvases: &[(String, Option<std::sync::Arc<Vec<u8>>>)]) -> bool {
         let (Some(styled), Some(layout)) = (self.styled.as_mut(), self.layout.as_mut()) else { return false };
         if cmds.is_empty() || self.pixels.is_empty() || std::env::var_os("MB_FULL_RENDER").is_some() {
             return false;
@@ -397,6 +403,9 @@ impl Page {
         // Each command's drawing, by its path of child indices in the styled tree.
         let mut drawings: Vec<Vec<usize>> = Vec::new();
         for c in cmds {
+            if let js_engine::DomCommand::Canvas { .. } = c {
+                continue;
+            }
             let js_engine::DomCommand::SetAttribute { id, name, .. } = c else {
                 if std::env::var_os("MB_TRACE").is_some() {
                     eprintln!("full render for {c:?}");
@@ -461,9 +470,54 @@ impl Page {
             self.damage.push(r);
             phases.mark("svg-paint");
         }
+        for (id, before) in canvases {
+            let Some(before) = before else { return false };
+            let mut found = Vec::new();
+            find_image_boxes(layout, before, &mut Vec::new(), &mut found);
+            let ([b], Some(c)) = (&found[..], self.canvases.get_mut(id)) else { return false };
+            let (iw, ih) = c.size();
+            let px = c.image();
+            let lb = layout_at_mut(layout, b);
+            let changed = changed_rect(before, &px, iw, ih);
+            if let layout::BoxContent::Image { data, .. } = &mut lb.content {
+                *data = px;
+            }
+            let Some(changed) = changed else { continue };
+            let r = if (lb.width, lb.height) == (iw as f32, ih as f32) {
+                let (x, y) = (lb.content_x().floor() as i32, lb.content_y().floor() as i32);
+                [x + changed[0] - 1, y + changed[1] - 1, x + changed[2] + 1, y + changed[3] + 1]
+            } else {
+                crate::damage::own(lb)
+            };
+            paint::repaint(&mut self.pixels, self.page_w, self.page_h, layout, r);
+            self.damage.push(r);
+        }
+        phases.mark("canvas");
         phases.report();
         true
     }
+
+    /// Draws the canvas calls scripts made since the last time. Returns the
+    /// canvases drawn on, each with the picture it showed before.
+    fn draw_canvases(&mut self) -> Vec<(String, Option<std::sync::Arc<Vec<u8>>>)> {
+        let Some(doc) = self.document.as_mut() else { return Vec::new() };
+        let ops = std::mem::take(&mut doc.canvas_ops);
+        let mut touched: Vec<(String, Option<std::sync::Arc<Vec<u8>>>, (u32, u32))> = Vec::new();
+        for (id, op) in &ops {
+            let size = match touched.iter().find(|t| &t.0 == id) {
+                Some(t) => t.2,
+                None => {
+                    let size = canvas_size(&doc.root, id);
+                    let before = self.canvases.get_mut(id).map(|c| c.image());
+                    touched.push((id.clone(), before, size));
+                    size
+                }
+            };
+            self.canvases.apply(id, size, op);
+        }
+        touched.into_iter().map(|(id, before, _)| (id, before)).collect()
+    }
+
 
     /// Styles, lays out and paints the whole page from the current DOM.
     fn render(&mut self) {
@@ -482,6 +536,7 @@ impl Page {
             pending: &mut self.pending_images,
             svg: &mut self.svg,
             svg_used: Vec::new(),
+            canvases: &mut self.canvases,
         };
         let layout_input = convert_styled(&styled.root, &mut cx);
         let used = std::mem::take(&mut cx.svg_used);
@@ -545,6 +600,24 @@ impl Page {
             content_height: total_height,
         };
     }
+}
+
+/// A canvas's pixel size: its width/height attributes, else 300×150.
+fn canvas_attr_size(d: &dom::ElementData) -> (u32, u32) {
+    let get = |k: &str, def: u32| d.attributes.get(k).and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(def).clamp(1, 4096);
+    (get("width", 300), get("height", 150))
+}
+
+fn canvas_size(n: &dom::Node, id: &str) -> (u32, u32) {
+    fn find<'a>(n: &'a dom::Node, id: &str) -> Option<&'a dom::ElementData> {
+        if let dom::NodeType::Element(d) = &n.node_type {
+            if d.attributes.get("id").map(String::as_str) == Some(id) {
+                return Some(d);
+            }
+        }
+        n.children.iter().find_map(|c| find(c, id))
+    }
+    find(n, id).map(canvas_attr_size).unwrap_or((300, 150))
 }
 
 fn is_tag(n: &css::StyledNode, tag: &str) -> bool {
@@ -675,6 +748,7 @@ struct Cx<'a> {
     svg: &'a mut crate::svg::SvgCache,
     /// Cache keys of the drawings this render used.
     svg_used: Vec<(String, u32, u32)>,
+    canvases: &'a mut crate::canvas::Canvases,
 }
 
 impl Cx<'_> {
@@ -986,6 +1060,16 @@ fn convert_styled(sn: &css::StyledNode, cx: &mut Cx) -> layout::StyledNode {
                             layout::NodeContent::Text(placeholder)
                         }
                     }
+                }
+                "canvas" => {
+                    let id = data.attributes.get("id").map(String::as_str).unwrap_or("");
+                    let (w, h) = canvas_attr_size(data);
+                    // A canvas never drawn on is transparent.
+                    let px = match cx.canvases.get_mut(id) {
+                        Some(c) if c.size() == (w, h) => c.image(),
+                        _ => std::sync::Arc::new(vec![0; (w * h * 4) as usize]),
+                    };
+                    layout::NodeContent::Image { alt: String::new(), data: px, intrinsic_w: w, intrinsic_h: h }
                 }
                 "svg" => match crate::svg::render(sn, cx.svg) {
                     Some(((data, w, h), key)) => {

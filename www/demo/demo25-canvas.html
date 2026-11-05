@@ -1,0 +1,27 @@
+<!doctype html><html><body style="margin:0;background:#0b0f17;color:#e8edf5;font-family:sans-serif">
+<div style="padding:8px 12px;font-weight:bold;color:#38bdf8">Canvas 2D</div>
+<canvas id="c" width="400" height="240" style="background:#111827"></canvas>
+<script>
+var c = document.getElementById('c'), ctx = c.getContext('2d');
+var t = 0;
+function draw() {
+  t++;
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.fillStyle = '#1f2937'; ctx.fillRect(10, 10, 380, 220);
+  ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(120, 120, 80, 0, Math.PI * 2); ctx.stroke();
+  ctx.save(); ctx.translate(120, 120); ctx.rotate(t / 10);
+  ctx.fillStyle = '#f87171'; ctx.fillRect(-4, -70, 8, 70); ctx.restore();
+  ctx.fillStyle = '#34d399';
+  ctx.beginPath(); ctx.moveTo(240, 200);
+  for (var x = 0; x <= 140; x += 10) ctx.lineTo(240 + x, 120 - Math.sin((x + t * 5) / 20) * 50);
+  ctx.lineTo(380, 200); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#e8edf5'; ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('кадр ' + t, 310, 40);
+  var img = ctx.createImageData(20, 20);
+  for (var i = 0; i < 400; i++) { img.data[i*4] = 255; img.data[i*4+1] = (i * 7 + t * 10) % 256; img.data[i*4+3] = 255; }
+  ctx.putImageData(img, 360, 205);
+  requestAnimationFrame(draw);
+}
+draw();
+</script></body></html>

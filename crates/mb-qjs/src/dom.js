@@ -105,18 +105,63 @@ MockElement.prototype.appendChild = function (child) {
 };
 MockElement.prototype.removeChild = function (child) { return child; };
 MockElement.prototype.remove = function () {};
+['width', 'height'].forEach(function (k) {
+  Object.defineProperty(MockElement.prototype, k, {
+    get: function () { var v = parseInt(this._attrs[k], 10); return isNaN(v) ? (k === 'width' ? 300 : 150) : v; },
+    set: function (v) { this.setAttribute(k, String(v)); }
+  });
+});
+
+// Canvas 2D: each call becomes a 'Canvas' command the engine draws; the
+// context keeps the state (styles, font) that calls carry along.
 MockElement.prototype.getContext = function (type) {
   if (type !== '2d') return null;
-  var id = this._id;
-  var noop = function () {};
-  return {
-    fillStyle: '#000000', strokeStyle: '#000000', lineWidth: 1, font: '16px sans-serif',
-    fillRect: function (x, y, w, h) { __mb_push({ type: 'CanvasFillRect', id: id, x: x, y: y, w: w, h: h, color: String(this.fillStyle) }); },
-    strokeRect: function (x, y, w, h) { __mb_push({ type: 'CanvasStrokeRect', id: id, x: x, y: y, w: w, h: h, color: String(this.strokeStyle) }); },
-    fillText: function (text, x, y) { __mb_push({ type: 'CanvasFillText', id: id, text: String(text), x: x, y: y, color: String(this.fillStyle), font: String(this.font) }); },
-    clearRect: function (x, y, w, h) { __mb_push({ type: 'CanvasClearRect', id: id, x: x, y: y, w: w, h: h }); },
-    beginPath: noop, closePath: noop, moveTo: noop, lineTo: noop, arc: noop, fill: noop, stroke: noop
+  if (this._ctx) return this._ctx;
+  var id = this._id, el = this;
+  var ctx = {
+    canvas: el,
+    fillStyle: '#000000', strokeStyle: '#000000', lineWidth: 1, font: '10px sans-serif',
+    globalAlpha: 1, textAlign: 'start', textBaseline: 'alphabetic', lineCap: 'butt', lineJoin: 'miter'
   };
+  function op(name, args, extra) {
+    var c = { type: 'Canvas', id: id, op: name, args: args || [], alpha: ctx.globalAlpha };
+    if (extra) for (var k in extra) c[k] = extra[k];
+    __mb_push(c);
+  }
+  function nums(a) { return Array.prototype.slice.call(a).map(Number); }
+  ['beginPath', 'closePath', 'save', 'restore', 'resetTransform'].forEach(function (n) {
+    ctx[n] = function () { op(n); };
+  });
+  ['moveTo', 'lineTo', 'rect', 'quadraticCurveTo', 'bezierCurveTo', 'translate', 'rotate', 'scale', 'setTransform', 'clearRect'].forEach(function (n) {
+    ctx[n] = function () { op(n, nums(arguments)); };
+  });
+  ctx.arc = function (x, y, r, a0, a1, ccw) { op('arc', [x, y, r, a0, a1, ccw ? 1 : 0]); };
+  ctx.fillRect = function (x, y, w, h) { op('fillRect', [x, y, w, h], { style: String(ctx.fillStyle) }); };
+  ctx.strokeRect = function (x, y, w, h) { op('strokeRect', [x, y, w, h], { style: String(ctx.strokeStyle), lineWidth: ctx.lineWidth }); };
+  ctx.fill = function () { op('fill', [], { style: String(ctx.fillStyle) }); };
+  ctx.stroke = function () { op('stroke', [], { style: String(ctx.strokeStyle), lineWidth: ctx.lineWidth }); };
+  ctx.fillText = function (text, x, y) {
+    op('fillText', [x, y], { text: String(text), style: String(ctx.fillStyle), font: String(ctx.font), align: ctx.textAlign });
+  };
+  ctx.strokeText = ctx.fillText;
+  ctx.measureText = function (text) {
+    var m = /(\d+(?:\.\d+)?)px/.exec(ctx.font), size = m ? Number(m[1]) : 10;
+    return { width: String(text).length * size * 0.55 };
+  };
+  ctx.createImageData = function (w, h) {
+    if (typeof w === 'object') { h = w.height; w = w.width; }
+    return { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) };
+  };
+  // Pixels are not read back from the engine: a fresh (transparent) image.
+  ctx.getImageData = function (x, y, w, h) { return ctx.createImageData(w, h); };
+  ctx.putImageData = function (img, x, y) {
+    op('putImageData', [x, y, img.width, img.height], { data: Array.prototype.slice.call(img.data) });
+  };
+  ctx.setLineDash = function () {};
+  ctx.drawImage = function () {};
+  ctx.createLinearGradient = ctx.createRadialGradient = function () { return { addColorStop: function () {} }; };
+  this._ctx = ctx;
+  return ctx;
 };
 
 // Called by the engine with the document's elements that have an id: their

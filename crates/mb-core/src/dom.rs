@@ -274,12 +274,15 @@ impl SimpleSelector {
 #[derive(Debug, Clone)]
 pub struct Document {
     pub root: Node,
+    /// Canvas drawing calls from scripts not yet drawn by the page (canvas id, call).
+    pub canvas_ops: Vec<(String, crate::canvas::Op)>,
 }
 
 impl Document {
     /// Create a new empty document.
     pub fn new() -> Self {
         Document {
+            canvas_ops: Vec::new(),
             root: Node::new_document(),
         }
     }
