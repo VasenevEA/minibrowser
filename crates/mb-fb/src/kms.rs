@@ -75,7 +75,31 @@ impl Kms {
         };
         let buffers = [make()?, make()?];
         card.set_crtc(crtc, Some(buffers[0].fb), (0, 0), &[con.handle()], Some(mode))?;
+        if std::env::var_os("MB_TRACE").is_some() {
+            describe_planes(&card);
+        }
         Ok(Kms { card, crtc, size, buffers, back: 1, last: Vec::new(), flipping: false })
+    }
+}
+
+/// Logs the display's hardware planes (layers the display engine blends).
+fn describe_planes(card: &Card) {
+    let _ = card.set_client_capability(drm::ClientCapability::UniversalPlanes, true);
+    for h in card.plane_handles().unwrap_or_default() {
+        let Ok(p) = card.get_plane(h) else { continue };
+        let kind = card
+            .get_properties(h)
+            .ok()
+            .and_then(|props| {
+                props.iter().find_map(|(id, v)| {
+                    let info = card.get_property(*id).ok()?;
+                    (info.name().to_str().ok()? == "type").then_some(*v)
+                })
+            })
+            .map(|v| ["overlay", "primary", "cursor"].get(v as usize).copied().unwrap_or("?"))
+            .unwrap_or("?");
+        let formats: Vec<String> = p.formats().iter().take(6).map(|f| String::from_utf8_lossy(&f.to_le_bytes()).into_owned()).collect();
+        eprintln!("plane {h:?}: {kind}, formats {}", formats.join(" "));
     }
 }
 
