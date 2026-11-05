@@ -37,7 +37,8 @@ struct Handle(usize);
 enum SinkNode {
     Document,
     Element {
-        qual_name: QualName,
+        /// Index into `DomSink::names`.
+        name: usize,
         attributes: HashMap<String, String>,
     },
     Text(String),
@@ -54,18 +55,15 @@ struct SinkEntry {
 
 /// The custom `TreeSink`.
 ///
-/// html5ever's `TreeSink` trait takes `&self` for mutation methods, so we use
-/// `UnsafeCell` for interior mutability. This is safe because html5ever drives
-/// the sink single-threaded during `parse_document().one()`.
+/// html5ever's `TreeSink` trait takes `&self` for mutation methods: the arena
+/// is a `RefCell`, borrowed for the length of each call. Element names live
+/// apart in an append-only `FrozenVec`, because `elem_name` hands out
+/// references that outlive any one call.
 struct DomSink {
-    /// Flat node arena.  Mutated through `&self` — see safety note above.
-    arena: std::cell::UnsafeCell<Vec<SinkEntry>>,
+    arena: std::cell::RefCell<Vec<SinkEntry>>,
+    names: elsa::FrozenVec<Box<QualName>>,
     document_handle: Handle,
 }
-
-// DomSink is only used single-threaded inside parse_document, but the trait
-// bounds may require Send in some configurations.  We assert it is safe.
-unsafe impl Send for DomSink {}
 
 impl DomSink {
     fn new() -> Self {
@@ -74,29 +72,19 @@ impl DomSink {
             children: Vec::new(),
         };
         DomSink {
-            arena: std::cell::UnsafeCell::new(vec![document]),
+            arena: std::cell::RefCell::new(vec![document]),
+            names: elsa::FrozenVec::new(),
             document_handle: Handle(0),
         }
     }
 
-    /// Get a mutable reference to the arena.
-    ///
-    /// # Safety
-    /// Only call during single-threaded parsing driven by html5ever.
-    #[inline]
-    fn arena_mut(&self) -> &mut Vec<SinkEntry> {
-        unsafe { &mut *self.arena.get() }
-    }
-
-    /// Get a shared reference to the arena.
-    #[inline]
-    fn arena_ref(&self) -> &Vec<SinkEntry> {
-        unsafe { &*self.arena.get() }
+    fn arena_mut(&self) -> std::cell::RefMut<'_, Vec<SinkEntry>> {
+        self.arena.borrow_mut()
     }
 
     /// Allocate a new handle.
     fn alloc(&self, entry: SinkEntry) -> Handle {
-        let arena = self.arena_mut();
+        let mut arena = self.arena_mut();
         let id = arena.len();
         arena.push(entry);
         Handle(id)
@@ -105,18 +93,16 @@ impl DomSink {
     /// Convert the flat arena into our owned `Document` tree.
     fn into_document(self) -> Document {
         let arena = self.arena.into_inner();
-        let root = Self::build_node(&arena, self.document_handle);
+        let root = Self::build_node(&arena, &self.names, self.document_handle);
         Document { root, canvas_ops: Vec::new(), detached: Vec::new() }
     }
 
     /// Recursively build an owned `Node` from the arena.
-    fn build_node(arena: &[SinkEntry], handle: Handle) -> Node {
+    fn build_node(arena: &[SinkEntry], names: &elsa::FrozenVec<Box<QualName>>, handle: Handle) -> Node {
         let entry = &arena[handle.0];
         let mut node = match &entry.node {
             SinkNode::Document => Node::new_document(),
-            SinkNode::Element { qual_name, attributes } => {
-                Node::new_element(&qual_name.local, attributes.clone())
-            }
+            SinkNode::Element { name, attributes } => Node::new_element(&names[*name].local, attributes.clone()),
             SinkNode::Text(text) => Node::new_text(text),
             SinkNode::Ignored => return Node::new_text(""),
         };
@@ -124,7 +110,7 @@ impl DomSink {
             if matches!(arena[child_handle.0].node, SinkNode::Ignored) {
                 continue;
             }
-            let child = Self::build_node(arena, child_handle);
+            let child = Self::build_node(arena, names, child_handle);
             node.children.push(child);
         }
         node
@@ -153,11 +139,11 @@ impl TreeSink for DomSink {
     }
 
     fn elem_name<'a>(&'a self, target: &'a Handle) -> ExpandedName<'a> {
-        let arena = self.arena_ref();
-        match &arena[target.0].node {
-            SinkNode::Element { qual_name, .. } => qual_name.expanded(),
+        let name = match &self.arena.borrow()[target.0].node {
+            SinkNode::Element { name, .. } => *name,
             _ => panic!("elem_name called on non-element"),
-        }
+        };
+        self.names[name].expanded()
     }
 
     fn create_element(
@@ -170,9 +156,10 @@ impl TreeSink for DomSink {
             .into_iter()
             .map(|a| (a.name.local.to_string(), a.value.to_string()))
             .collect();
+        self.names.push(Box::new(name));
         self.alloc(SinkEntry {
             node: SinkNode::Element {
-                qual_name: name,
+                name: self.names.len() - 1,
                 attributes,
             },
             children: Vec::new(),
@@ -194,7 +181,7 @@ impl TreeSink for DomSink {
     }
 
     fn append(&self, parent: &Handle, child: NodeOrText<Handle>) {
-        let arena = self.arena_mut();
+        let mut arena = self.arena_mut();
         match child {
             NodeOrText::AppendNode(handle) => {
                 arena[parent.0].children.push(handle);
@@ -247,7 +234,7 @@ impl TreeSink for DomSink {
     fn set_quirks_mode(&self, _mode: QuirksMode) {}
 
     fn append_before_sibling(&self, sibling: &Handle, new_node: NodeOrText<Handle>) {
-        let arena = self.arena_mut();
+        let mut arena = self.arena_mut();
         let sibling_id = sibling.0;
         for i in 0..arena.len() {
             if let Some(pos) = arena[i].children.iter().position(|h| h.0 == sibling_id) {
@@ -272,7 +259,7 @@ impl TreeSink for DomSink {
     }
 
     fn add_attrs_if_missing(&self, target: &Handle, attrs: Vec<Attribute>) {
-        let arena = self.arena_mut();
+        let mut arena = self.arena_mut();
         if let SinkNode::Element { ref mut attributes, .. } = arena[target.0].node {
             for attr in attrs {
                 let key = attr.name.local.to_string();
@@ -282,7 +269,7 @@ impl TreeSink for DomSink {
     }
 
     fn remove_from_parent(&self, target: &Handle) {
-        let arena = self.arena_mut();
+        let mut arena = self.arena_mut();
         let target_id = target.0;
         for i in 0..arena.len() {
             arena[i].children.retain(|h| h.0 != target_id);
@@ -290,7 +277,7 @@ impl TreeSink for DomSink {
     }
 
     fn reparent_children(&self, node: &Handle, new_parent: &Handle) {
-        let arena = self.arena_mut();
+        let mut arena = self.arena_mut();
         let children: Vec<Handle> = arena[node.0].children.drain(..).collect();
         arena[new_parent.0].children.extend(children);
     }

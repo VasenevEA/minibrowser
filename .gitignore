@@ -8,3 +8,5 @@ www/doom/doom.js
 www/doom/doom1.wad
 __pycache__/
 !docs/images/**
+www/minibrowser.js
+www/minibrowser_bg.wasm

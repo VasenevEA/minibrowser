@@ -1,5 +1,8 @@
 # MiniBrowser
 
+[![CI](https://github.com/VasenevEA/minibrowser/actions/workflows/ci.yml/badge.svg)](https://github.com/VasenevEA/minibrowser/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **A small HTML/CSS/JavaScript engine for embedded Linux screens that have no
 window manager, no GPU and not much memory.**
 
@@ -11,6 +14,11 @@ browser (WASM) and inside [Slint](https://slint.dev) apps.
 <p align="center">
   <img src="docs/images/panel.jpg" width="31%" alt="A T113 panel running MiniBrowser">
   <img src="docs/images/anim.gif" width="66%" alt="Gauges, a fan and a tank animated in plain HTML/SVG">
+</p>
+
+<p align="center">
+  <img src="docs/images/doom.gif" width="66%" alt="Doom running in MiniBrowser">
+  <br><sub><b>And yes, it runs Doom</b> — doomgeneric compiled to plain JavaScript (no WebAssembly), on QuickJS, drawn on a <code>&lt;canvas&gt;</code> with <code>putImageData</code>, with an HTML touch pad. ~50 fps on a laptop; on the 2× Cortex-A7 panel it is a slideshow (1–3 fps), but it plays.</sub>
 </p>
 
 Built for and measured on an **Allwinner T113-S3** HMI panel: 2× Cortex-A7 at
@@ -88,6 +96,11 @@ src/                the WASM build (the engine in a web page).
 ```
 
 ## Quick start
+
+**Prebuilt binaries** of `mb-fb` for armv7, aarch64 and x86_64 Linux (static,
+musl; with and without networking) are attached to each
+[release](https://github.com/VasenevEA/minibrowser/releases). Copy one to the
+board and run `./mb-fb page.html`.
 
 ```bash
 # Render a page to a PNG (macOS or Linux)
@@ -206,6 +219,7 @@ the optional one (`--engine blitz`).
 
 | | core | Blitz |
 |---|---|---|
+| Doom (doomgeneric → JavaScript → canvas, `www/doom`, see `tools/doom/build.sh`) | ✅ | ❌ |
 | inline SVG (paths, arcs, gradients, transforms), changed live by scripts | ✅ (resvg) | ✅ |
 | canvas 2D: rects, paths, arcs, text, transforms, `putImageData` | ✅ | ❌ |
 | damage-rect repaint (only what changed) | ✅ | ✅ |
@@ -252,7 +266,9 @@ the optional one (`--engine blitz`).
 - [ ] Canvas 2D on Blitz; `<img>` from files and http(s) in the core engine
 - [ ] `wss://` and persistent `localStorage`
 - [ ] Hardware overlay plane for video and canvas (DRM planes)
-- [ ] Prebuilt binaries for armv7 / aarch64 / x86_64, a C API (`mb_page_new`, `mb_page_tick`…)
+- [x] CI: tests, a headless render, prebuilt binaries for armv7 / aarch64 / x86_64
+- [ ] A C API (`mb_page_new`, `mb_page_tick`…) for C, C++, Python, Go
+- [ ] Rendering fixes found by the Chrome comparison: `<img>` sizing (demo12), SVG gauge details (demo22)
 - [ ] Smaller builds: more features behind flags, font subsetting tools
 
 ## Measuring against Chrome
@@ -260,7 +276,13 @@ the optional one (`--engine blitz`).
 `tools/refcompare.py` renders every page in `www/demo` in headless Chrome (with
 the same DejaVu fonts) and in `mb-headless`, and counts the "ink" pixels (not
 plain background in either image) that match within 2 px. The report is
-`tests/ref/report.md`; `tools/sbs.py` makes a Chrome | MiniBrowser sheet.
+`tests/ref/report.md`; pages that cannot match by design (animations, random
+pixels, live network data) are marked there. How to run and read it:
+[docs/testing.md](docs/testing.md); all test suites: [tests/README.md](tests/README.md).
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## Licenses
 

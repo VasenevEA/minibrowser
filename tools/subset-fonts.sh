@@ -3,15 +3,23 @@
 # Greek, Cyrillic, punctuation, sub/superscripts, currency incl. ₽, arrows, math,
 # box drawing, shapes, symbols, dingbats). fontdue keeps every glyph's outline in
 # memory, so the full 6k-glyph fonts cost ~30 MB of RAM and ~0.5 s to load on a T113.
-# Needs fonttools (pip install fonttools).
+# Needs fonttools (pip install fonttools) and curl; the full DejaVu 2.37 fonts
+# are downloaded into $DEJAVU (default: a cache dir), not kept in the repo.
 set -e
-cd "$(dirname "$0")/../crates/mb-core/assets"
+ASSETS="$(cd "$(dirname "$0")/../crates/mb-core/assets" && pwd)"
+DEJAVU="${DEJAVU:-${XDG_CACHE_HOME:-$HOME/.cache}/dejavu-2.37}"
+if [ ! -f "$DEJAVU/DejaVuSans.ttf" ]; then
+  mkdir -p "$DEJAVU"
+  curl -fsSL -o "$DEJAVU/dejavu.tar.bz2" https://github.com/dejavu-fonts/dejavu-fonts/releases/download/version_2_37/dejavu-fonts-ttf-2.37.tar.bz2
+  tar -xjf "$DEJAVU/dejavu.tar.bz2" -C "$DEJAVU" --strip-components=2 dejavu-fonts-ttf-2.37/ttf
+fi
+cd "$DEJAVU"
 RANGES="U+0020-024F,U+0300-036F,U+0370-03FF,U+0400-052F,U+2000-206F,U+2070-209F,U+20A0-20CF,U+2100-214F,U+2190-21FF,U+2200-22FF,U+2300-23FF,U+2460-24FF,U+2500-25FF,U+2600-26FF,U+2700-27BF,U+FFFD"
 # Bold is for headings and labels: text scripts, digits, punctuation, units and a
 # few status marks only, to keep its parsed outlines small.
 BOLD="U+0020-017F,U+0370-03FF,U+0400-045F,U+2010-2027,U+2030-203A,U+2070-209F,U+20A0-20CF,U+2116,U+2122,U+2190-2193,U+2212,U+25A0-25A1,U+25B2-25BC,U+25CF,U+25CB,U+2713,U+2717,U+FFFD"
 for f in DejaVuSans DejaVuSansMono; do
-  python3 -m fontTools.subset "$f.ttf" --unicodes="$RANGES" --layout-features='*' --output-file="$f-hmi.ttf"
+  python3 -m fontTools.subset "$f.ttf" --unicodes="$RANGES" --layout-features='*' --output-file="$ASSETS/$f-hmi.ttf"
 done
-python3 -m fontTools.subset DejaVuSans-Bold.ttf --unicodes="$BOLD" --layout-features='*' --output-file=DejaVuSans-Bold-hmi.ttf
-ls -la *-hmi.ttf
+python3 -m fontTools.subset DejaVuSans-Bold.ttf --unicodes="$BOLD" --layout-features='*' --output-file="$ASSETS/DejaVuSans-Bold-hmi.ttf"
+ls -la "$ASSETS"/*-hmi.ttf

@@ -503,7 +503,7 @@ pub(crate) fn remove_script_elements(node: &mut Node) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dom::{Document, Node, NodeType, ElementData};
+    use crate::dom::{Document, Node, NodeType};
 
     /// Helper: create a document with a body containing elements with IDs.
     fn make_doc_with_ids(ids: &[&str]) -> Document {

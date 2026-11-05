@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Tests and a headless render
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Unit tests
+        run: cargo test -p mb-core -p mb-qjs
+      - name: Build mb-headless
+        run: cargo build --release -p mb-headless --features net
+      - name: Render demo pages
+        run: |
+          mkdir -p out
+          for p in www/demo/demo21-panel.html www/demo/demo24-anim.html www/demo/demo27-dom.html www/demo/demo28-preact.html www/dash/index.html; do
+            ./target/release/mb-headless "$p" "out/$(basename "$p" .html).png" --wait 1000
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: renders
+          path: out/*.png
+
+  panel:
+    name: mb-fb for ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [armv7-unknown-linux-musleabihf, aarch64-unknown-linux-musl, x86_64-unknown-linux-musl]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Tools (zig, cargo-zigbuild, libclang for the QuickJS bindings)
+        run: |
+          sudo apt-get update && sudo apt-get install -y libclang-dev
+          pip install ziglang
+          cargo install cargo-zigbuild --locked
+      - name: Build mb-fb (core, and core + net)
+        run: |
+          cargo zigbuild --release -p mb-fb --features bindgen --target ${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/mb-fb mb-fb-${{ matrix.target }}
+          cargo zigbuild --release -p mb-fb --features bindgen,net --target ${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/mb-fb mb-fb-net-${{ matrix.target }}
+          ls -la mb-fb-*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mb-fb-${{ matrix.target }}
+          path: mb-fb-*
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, panel]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mb-fb-*
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: mb-fb-*
+          body_path: CHANGELOG.md

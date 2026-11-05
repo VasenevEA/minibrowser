@@ -17,8 +17,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "tests", "ref")
 CHROME = os.environ.get("CHROME", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
 HEADLESS = os.path.join(ROOT, "target", "release", "mb-headless")
-FONT = os.path.join(ROOT, "crates", "mb-core", "assets", "DejaVuSans.ttf")
-FONT_BOLD = os.path.join(ROOT, "crates", "mb-core", "assets", "DejaVuSans-Bold.ttf")
+FONT = os.path.join(ROOT, "crates", "mb-core", "assets", "DejaVuSans-hmi.ttf")
+FONT_BOLD = os.path.join(ROOT, "crates", "mb-core", "assets", "DejaVuSans-Bold-hmi.ttf")
 W, H = map(int, os.environ.get("MB_SIZE", "800x480").split("x"))
 TOL = 24  # per-channel difference still counted as equal (antialiasing)
 SHIFT = 2  # pixels a feature may be off and still count
@@ -93,6 +93,17 @@ def score(a, b):
     return (float((ok & ink).sum()) / n if n else 1.0), diff
 
 
+# Pages whose score says nothing about rendering: why (see docs/testing.md).
+EXPECTED = {
+    "demo5-js-clock": "a clock: the screenshots are taken at different moments",
+    "demo24-anim": "animated: different moments of the animation",
+    "demo25-canvas": "animated canvas",
+    "demo26-pixels": "random pixels every frame: 0% expected",
+    "demo29-fetch": "live data from the web",
+    "demo30-live": "needs the ws_feed WebSocket server",
+}
+
+
 def main():
     pages = sys.argv[1:] or sorted(glob.glob(os.path.join(ROOT, "www", "demo", "*.html")))
     os.makedirs(OUT, exist_ok=True)
@@ -110,10 +121,15 @@ def main():
         print(f"{s * 100:6.2f}%  {name}", flush=True)
     avg = sum(s for _, s in rows) / len(rows)
     with open(os.path.join(OUT, "report.md"), "w") as f:
-        f.write(f"# MiniBrowser vs Chrome ({W}x{H}, ink pixels matching within {SHIFT}px, tolerance {TOL})\n\n| page | match |\n|---|---|\n")
+        f.write(f"# MiniBrowser vs Chrome ({W}x{H}, ink pixels matching within {SHIFT}px, tolerance {TOL})\n\n"
+                "See docs/testing.md. Pages with a note cannot match by design and are left out of the average of the rest.\n\n"
+                "| page | match | note |\n|---|---|---|\n")
         for n, s in rows:
-            f.write(f"| {n} | {s * 100:.2f}% |\n")
-        f.write(f"| **average** | **{avg * 100:.2f}%** |\n")
+            f.write(f"| {n} | {s * 100:.2f}% | {EXPECTED.get(n, '')} |\n")
+        rest = [s for n, s in rows if n not in EXPECTED]
+        f.write(f"| **average** | **{avg * 100:.2f}%** | all pages |\n")
+        if rest:
+            f.write(f"| **average, comparable pages** | **{sum(rest) / len(rest) * 100:.2f}%** | {len(rest)} pages |\n")
     print(f"{avg * 100:6.2f}%  average")
 
 
