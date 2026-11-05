@@ -413,6 +413,7 @@ impl Page {
                 drawings.push(path[..svg].to_vec());
             }
         }
+        let mut phases = Phases::start();
         // The pixels each drawing shows now, to find its box.
         let mut old = Vec::new();
         for d in &drawings {
@@ -431,6 +432,7 @@ impl Page {
             }
             boxes.push(found.pop().unwrap());
         }
+        phases.mark("svg-find");
         for c in cmds {
             if let js_engine::DomCommand::SetAttribute { id, name, value } = c {
                 let path = find_path(styled, id).expect("found above");
@@ -439,16 +441,27 @@ impl Page {
                 }
             }
         }
-        for (d, b) in drawings.iter().zip(&boxes) {
-            let Some(((px, _, _), _)) = crate::svg::render(node_at(styled, d), &mut self.svg) else { return false };
+        for ((d, b), before) in drawings.iter().zip(&boxes).zip(&old) {
+            let Some(((px, iw, ih), _)) = crate::svg::render(node_at(styled, d), &mut self.svg) else { return false };
+            phases.mark("svg-render");
             let lb = layout_at_mut(layout, b);
+            let changed = changed_rect(before, &px, iw, ih);
             if let layout::BoxContent::Image { data, .. } = &mut lb.content {
                 *data = px;
             }
-            let r = crate::damage::own(lb);
+            let Some(changed) = changed else { continue };
+            // Drawn at its own size: repaint just the pixels that changed.
+            let r = if (lb.width, lb.height) == (iw as f32, ih as f32) {
+                let (x, y) = (lb.content_x().floor() as i32, lb.content_y().floor() as i32);
+                [x + changed[0] - 1, y + changed[1] - 1, x + changed[2] + 1, y + changed[3] + 1]
+            } else {
+                crate::damage::own(lb)
+            };
             paint::repaint(&mut self.pixels, self.page_w, self.page_h, layout, r);
             self.damage.push(r);
+            phases.mark("svg-paint");
         }
+        phases.report();
         true
     }
 
@@ -572,10 +585,33 @@ fn find_path(n: &css::StyledNode, id: &str) -> Option<Vec<usize>> {
     })
 }
 
+/// The bounding box `[x0, y0, x1, y1)` of the pixels that differ between two
+/// `w`×`h` RGBA images (None: identical).
+fn changed_rect(a: &[u8], b: &[u8], w: u32, h: u32) -> Option<[i32; 4]> {
+    if a.len() != b.len() || a.len() != (w * h * 4) as usize {
+        return Some([0, 0, w as i32, h as i32]);
+    }
+    let line = w as usize * 4;
+    let rows: Vec<usize> = (0..h as usize).filter(|&y| a[y * line..(y + 1) * line] != b[y * line..(y + 1) * line]).collect();
+    let (&y0, &y1) = (rows.first()?, rows.last()?);
+    let (mut x0, mut x1) = (w as usize, 0);
+    for &y in &rows {
+        let (ra, rb) = (&a[y * line..(y + 1) * line], &b[y * line..(y + 1) * line]);
+        if let Some(i) = (0..w as usize).find(|&x| ra[x * 4..x * 4 + 4] != rb[x * 4..x * 4 + 4]) {
+            x0 = x0.min(i);
+        }
+        if let Some(i) = (0..w as usize).rev().find(|&x| ra[x * 4..x * 4 + 4] != rb[x * 4..x * 4 + 4]) {
+            x1 = x1.max(i + 1);
+        }
+    }
+    Some([x0 as i32, y0 as i32, x1 as i32, y1 as i32 + 1])
+}
+
 /// Paths to the image boxes showing exactly `px`.
-fn find_image_boxes(b: &layout::LayoutBox, px: &[u8], path: &mut Vec<usize>, out: &mut Vec<Vec<usize>>) {
+fn find_image_boxes(b: &layout::LayoutBox, px: &std::sync::Arc<Vec<u8>>, path: &mut Vec<usize>, out: &mut Vec<Vec<usize>>) {
     if let layout::BoxContent::Image { data, .. } = &b.content {
-        if data.len() == px.len() && data[..] == px[..] {
+        // The box holds the cached drawing itself; equal pixels are another copy of it.
+        if std::sync::Arc::ptr_eq(data, px) || (data.len() == px.len() && data[..] == px[..]) {
             out.push(path.clone());
         }
     }
@@ -964,7 +1000,7 @@ fn convert_styled(sn: &css::StyledNode, cx: &mut Cx) -> layout::StyledNode {
                     let (img_data, iw, ih) = cx.image(&src);
                     layout::NodeContent::Image {
                         alt,
-                        data: img_data,
+                        data: std::sync::Arc::new(img_data),
                         intrinsic_w: iw,
                         intrinsic_h: ih,
                     }

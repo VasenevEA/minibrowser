@@ -356,40 +356,41 @@ fn paint_image(pixmap: &mut PixmapMut, layout_box: &LayoutBox, font: &FontduFont
 
         let dst_w = box_w as u32;
         let dst_h = box_h as u32;
-
-        for dy in 0..dst_h {
-            for dx in 0..dst_w {
-                let px = cx as u32 + dx;
-                let py = cy as u32 + dy;
-                if px >= pw || py >= ph || (px as i32) < clip.x0 || (px as i32) >= clip.x1 || (py as i32) < clip.y0 || (py as i32) >= clip.y1 {
+        // Only the clipped part of the box: a damage repaint touches a few rows.
+        let (bx, by) = (cx as i32, cy as i32);
+        let x0 = bx.max(clip.x0).max(0);
+        let y0 = by.max(clip.y0).max(0);
+        let x1 = (bx + dst_w as i32).min(clip.x1).min(pw as i32);
+        let y1 = (by + dst_h as i32).min(clip.y1).min(ph as i32);
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
+        // Nearest-neighbour source column for each destination column.
+        let cols: Vec<usize> = (x0..x1)
+            .map(|px| ((((px - bx) as f32 * intrinsic_w as f32 / dst_w as f32) as u32).min(intrinsic_w - 1) * 4) as usize)
+            .collect();
+        for py in y0..y1 {
+            let sy = (((py - by) as f32 * intrinsic_h as f32 / dst_h as f32) as u32).min(intrinsic_h - 1);
+            let src_row = (sy * intrinsic_w * 4) as usize;
+            let dst_row = (py as u32 * pw * 4) as usize;
+            for (i, &sx) in cols.iter().enumerate() {
+                let src_idx = src_row + sx;
+                let dst_idx = dst_row + (x0 as usize + i) * 4;
+                if src_idx + 3 >= img_data.len() || dst_idx + 3 >= data.len() {
                     continue;
                 }
-
-                // Nearest-neighbor sample from source
-                let sx = (dx as f32 * intrinsic_w as f32 / dst_w as f32) as u32;
-                let sy = (dy as f32 * intrinsic_h as f32 / dst_h as f32) as u32;
-                let sx = sx.min(intrinsic_w - 1);
-                let sy = sy.min(intrinsic_h - 1);
-
-                let src_idx = ((sy * intrinsic_w + sx) * 4) as usize;
-                let dst_idx = ((py * pw + px) * 4) as usize;
-
-                if src_idx + 3 < img_data.len() && dst_idx + 3 < data.len() {
-                    let sa = img_data[src_idx + 3] as u32;
-                    if sa == 255 {
-                        data[dst_idx] = img_data[src_idx];
-                        data[dst_idx + 1] = img_data[src_idx + 1];
-                        data[dst_idx + 2] = img_data[src_idx + 2];
-                        data[dst_idx + 3] = 255;
-                    } else if sa > 0 {
-                        // Alpha blend
-                        let da = data[dst_idx + 3] as u32;
-                        let inv_sa = 255 - sa;
-                        data[dst_idx]     = ((img_data[src_idx] as u32 * sa + data[dst_idx] as u32 * inv_sa) / 255) as u8;
-                        data[dst_idx + 1] = ((img_data[src_idx + 1] as u32 * sa + data[dst_idx + 1] as u32 * inv_sa) / 255) as u8;
-                        data[dst_idx + 2] = ((img_data[src_idx + 2] as u32 * sa + data[dst_idx + 2] as u32 * inv_sa) / 255) as u8;
-                        data[dst_idx + 3] = ((sa + da * inv_sa / 255).min(255)) as u8;
-                    }
+                let sa = img_data[src_idx + 3] as u32;
+                if sa == 255 {
+                    data[dst_idx..dst_idx + 3].copy_from_slice(&img_data[src_idx..src_idx + 3]);
+                    data[dst_idx + 3] = 255;
+                } else if sa > 0 {
+                    // Alpha blend
+                    let da = data[dst_idx + 3] as u32;
+                    let inv_sa = 255 - sa;
+                    data[dst_idx]     = ((img_data[src_idx] as u32 * sa + data[dst_idx] as u32 * inv_sa) / 255) as u8;
+                    data[dst_idx + 1] = ((img_data[src_idx + 1] as u32 * sa + data[dst_idx + 1] as u32 * inv_sa) / 255) as u8;
+                    data[dst_idx + 2] = ((img_data[src_idx + 2] as u32 * sa + data[dst_idx + 2] as u32 * inv_sa) / 255) as u8;
+                    data[dst_idx + 3] = ((sa + da * inv_sa / 255).min(255)) as u8;
                 }
             }
         }

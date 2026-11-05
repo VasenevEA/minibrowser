@@ -1,6 +1,10 @@
 //! mb-fb — shows an HTML page full-screen on a Linux framebuffer, with touch.
 //!
-//!   mb-fb page.html [--fb /dev/fb0] [--input /dev/input/event0] [--probe-touch]
+//!   mb-fb page.html [--display auto|kms|fb] [--fb /dev/fb0] [--card /dev/dri/card0]
+//!                   [--input /dev/input/event0] [--probe-touch]
+//!
+//! Output goes through DRM/KMS when the board has it (double buffered, flips on
+//! vsync), else to the fbdev framebuffer.
 //!
 //! Scripts run on QuickJS; taps become clicks, timers fire on time, and the
 //! framebuffer is only written when the page changed. The page file is watched
@@ -16,6 +20,37 @@ use std::time::{Duration, Instant, SystemTime};
 
 use mb_core::Page;
 use mb_qjs::QuickJs;
+
+#[cfg(feature = "kms")]
+mod kms;
+
+/// Where frames go: fbdev or DRM/KMS.
+pub trait Screen {
+    fn size(&self) -> (u32, u32);
+    /// Copies the `rects` (`[x0, y0, x1, y1)` in page pixels) of a `w`-wide RGBA
+    /// page onto the screen.
+    fn present(&mut self, rgba: &[u8], w: u32, rects: &[[i32; 4]]);
+}
+
+fn open_screen(args: &[String]) -> Box<dyn Screen> {
+    let want = arg(args, "--display", "auto");
+    #[cfg(feature = "kms")]
+    if want != "fb" {
+        let card = arg(args, "--card", "/dev/dri/card0");
+        match kms::Kms::open(&card) {
+            Ok(k) => {
+                eprintln!("display: kms {card} {:?}", k.size());
+                return Box::new(k);
+            }
+            Err(e) if want == "kms" => panic!("kms {card}: {e}"),
+            Err(e) => eprintln!("display: kms {card}: {e}, using fbdev"),
+        }
+    }
+    let path = arg(args, "--fb", "/dev/fb0");
+    let fb = Fb::open(&path);
+    eprintln!("display: fbdev {path} {:?}", fb.size());
+    Box::new(fb)
+}
 
 // ---- framebuffer ---------------------------------------------------------------------------
 
@@ -48,6 +83,16 @@ struct Fb {
     buf: Vec<u8>,
 }
 
+impl Screen for Fb {
+    fn size(&self) -> (u32, u32) {
+        (self.var.xres, self.var.yres)
+    }
+
+    fn present(&mut self, rgba: &[u8], w: u32, rects: &[[i32; 4]]) {
+        self.blit(rgba, w, rects)
+    }
+}
+
 impl Fb {
     fn open(path: &str) -> Fb {
         let file = OpenOptions::new().read(true).write(true).open(path).expect("open fb");
@@ -64,13 +109,8 @@ impl Fb {
         Fb { file, line, map, map_len, buf, var }
     }
 
-    fn size(&self) -> (u32, u32) {
-        (self.var.xres, self.var.yres)
-    }
-
-    /// Copies the `rects` (`[x0, y0, x1, y1)` in page pixels) of a `w`-wide RGBA
-    /// page onto the screen, in the framebuffer's own pixel layout.
-    fn present(&mut self, rgba: &[u8], w: u32, rects: &[[i32; 4]]) {
+    /// `present` in the framebuffer's own pixel layout.
+    fn blit(&mut self, rgba: &[u8], w: u32, rects: &[[i32; 4]]) {
         let v = &self.var;
         let alpha = if v.t[1] > 0 { 0xffu32 << v.t[0] } else { 0 };
         let (sx, sy) = (w.min(v.xres) as i32, (v.yres as usize).min(rgba.len() / (w as usize * 4)) as i32);
@@ -212,7 +252,7 @@ fn main() {
     // MB_TRACE=1 logs every frame's timings.
     let trace = std::env::var_os("MB_TRACE").is_some();
 
-    let mut fb = Fb::open(&arg(&args, "--fb", "/dev/fb0"));
+    let mut fb = open_screen(&args);
     let (w, h) = fb.size();
     let _ = fs::write("/sys/class/graphics/fb0/blank", "0");
     let _ = fs::write("/sys/class/graphics/fbcon/cursor_blink", "0");

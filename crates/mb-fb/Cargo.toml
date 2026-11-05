@@ -10,6 +10,11 @@ mb-core = { path = "../mb-core" }
 mb-qjs = { path = "../mb-qjs" }
 libc = "0.2"
 log = "0.4"
+drm = { version = "0.14", optional = true }
+drm-fourcc = { version = "2.2.0", optional = true }
 
 [features]
 bindgen = ["mb-qjs/bindgen"]
+default = ["kms"]
+# DRM/KMS output (double buffering with vsync); without it only fbdev.
+kms = ["dep:drm", "dep:drm-fourcc"]

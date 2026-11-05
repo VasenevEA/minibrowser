@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 use std::fmt::Write;
+use std::sync::Arc;
 
 use crate::css::StyledNode;
 use crate::dom::NodeType;
@@ -16,7 +17,7 @@ use crate::dom::NodeType;
 /// frame until a script changes it.
 #[derive(Default)]
 pub struct SvgCache {
-    entries: HashMap<(String, u32, u32), (Vec<u8>, u32, u32)>,
+    entries: HashMap<(String, u32, u32), (Arc<Vec<u8>>, u32, u32)>,
 }
 
 impl SvgCache {
@@ -29,7 +30,7 @@ impl SvgCache {
 /// Renders the `<svg>` element `node` to straight-alpha RGBA. The size is the
 /// `width`/`height` attributes, else the viewBox, else 300×150 (as browsers).
 /// Returns the pixels, their size and the cache key it used.
-pub fn render(node: &StyledNode, cache: &mut SvgCache) -> Option<((Vec<u8>, u32, u32), (String, u32, u32))> {
+pub fn render(node: &StyledNode, cache: &mut SvgCache) -> Option<((Arc<Vec<u8>>, u32, u32), (String, u32, u32))> {
     let NodeType::Element(data) = &node.node_type else { return None };
     let attr = |k: &str| data.attributes.get(k).and_then(|v| v.trim().trim_end_matches("px").parse::<f32>().ok());
     let view_box: Option<Vec<f32>> = data.attributes.get("viewBox").map(|v| {
@@ -67,12 +68,17 @@ pub fn render(node: &StyledNode, cache: &mut SvgCache) -> Option<((Vec<u8>, u32,
     let transform = tiny_skia::Transform::from_scale(w as f32 / size.width(), h as f32 / size.height());
     resvg::render(&tree, transform, &mut pixmap.as_mut());
     // The painter blends straight alpha, tiny-skia keeps premultiplied.
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for p in pixmap.pixels() {
-        let c = p.demultiply();
-        rgba.extend_from_slice(&[c.red(), c.green(), c.blue(), c.alpha()]);
+    let mut rgba = pixmap.take();
+    for p in rgba.chunks_exact_mut(4) {
+        // Most of a drawing is empty or opaque: no division there.
+        let a = p[3] as u32;
+        if a != 0 && a != 255 {
+            for c in &mut p[..3] {
+                *c = ((*c as u32 * 255 + a / 2) / a).min(255) as u8;
+            }
+        }
     }
-    let out = (rgba, w, h);
+    let out = (Arc::new(rgba), w, h);
     cache.entries.insert(key.clone(), out.clone());
     Some((out, key))
 }

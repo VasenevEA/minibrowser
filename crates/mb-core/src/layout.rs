@@ -66,7 +66,7 @@ pub enum BoxContent {
     Image {
         alt: String,
         /// Decoded RGBA pixel data (width * height * 4 bytes). Empty if placeholder.
-        data: Vec<u8>,
+        data: std::sync::Arc<Vec<u8>>,
         /// Intrinsic pixel width of the decoded image (0 if placeholder).
         intrinsic_w: u32,
         /// Intrinsic pixel height of the decoded image (0 if placeholder).
@@ -339,7 +339,7 @@ pub enum NodeContent {
     Text(String),
     Image {
         alt: String,
-        data: Vec<u8>,
+        data: std::sync::Arc<Vec<u8>>,
         intrinsic_w: u32,
         intrinsic_h: u32,
     },
