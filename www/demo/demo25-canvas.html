@@ -17,7 +17,7 @@ function draw() {
   for (var x = 0; x <= 140; x += 10) ctx.lineTo(240 + x, 120 - Math.sin((x + t * 5) / 20) * 50);
   ctx.lineTo(380, 200); ctx.closePath(); ctx.fill();
   ctx.fillStyle = '#e8edf5'; ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText('кадр ' + t, 310, 40);
+  ctx.fillText('frame ' + t, 310, 40);
   var img = ctx.createImageData(20, 20);
   for (var i = 0; i < 400; i++) { img.data[i*4] = 255; img.data[i*4+1] = (i * 7 + t * 10) % 256; img.data[i*4+3] = 255; }
   ctx.putImageData(img, 360, 205);

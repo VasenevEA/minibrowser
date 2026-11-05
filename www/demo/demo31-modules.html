@@ -15,11 +15,11 @@
 <script type="module" src="modules/main-demo31.js"></script>
 </head>
 <body>
-<h1>ES-модули: import / export</h1>
+<h1>ES modules: import / export</h1>
 <div id="meters"></div>
 <div id="info"></div>
 <script type="module">
   import { unit } from './modules/format.js';
-  document.getElementById('info').textContent += ' Встроенный модуль видит единицы: ' + Object.values(unit).join(', ') + '.';
+  document.getElementById('info').textContent += ' Inline module sees units: ' + Object.values(unit).join(', ') + '.';
 </script>
 </body></html>

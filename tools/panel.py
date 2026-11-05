@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Talks to the T113 panel over its USB console, reusing mrvdash's Console.
+"""Talks to a panel over its serial console (see serial_console.py).
 
-The mrvdash collector pushes over the same port every 3 min, so it is paused
-(SIGSTOP) for the duration and resumed afterwards.
+A data collector that shares the port (any process named collect.py) is
+paused (SIGSTOP) for the duration and resumed afterwards.
   panel.py put <local> <remote>     upload a file (chmod +x)
   panel.py run '<shell cmd>'        run a command, print output
 """
 import os, signal, subprocess, sys, time
-sys.path.insert(0, os.path.expanduser("~/dev/mrvdash"))
-from collect import Console
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from serial_console import Console
 
 
 def collector_pids():

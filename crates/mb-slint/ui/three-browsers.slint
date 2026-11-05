@@ -34,15 +34,15 @@ component BrowserCard inherits Rectangle {
             spacing: 8px;
             Text { text: root.title; color: #7dd3fc; font-size: 18px; wrap: word-wrap; }
             Text { text: root.note; color: #94a3b8; font-size: 13px; wrap: word-wrap; }
-            Text { text: "кадров: " + root.frames; color: #64748b; font-size: 13px; }
+            Text { text: "frames: " + root.frames; color: #64748b; font-size: 13px; }
             Rectangle { vertical-stretch: 1; }
-            Button { text: "Перезагрузить"; clicked => { root.reload(); } }
+            Button { text: "Reload"; clicked => { root.reload(); } }
         }
     }
 }
 
 export component ThreeBrowsers inherits Window {
-    title: "Три браузера в Slint";
+    title: "Three browsers in Slint";
     preferred-width: 800px;
     preferred-height: 480px;
     background: #0b1020;
@@ -58,8 +58,8 @@ export component ThreeBrowsers inherits Window {
             height: 44px;
             padding-left: 14px;
             padding-right: 14px;
-            Text { text: "Slint · три браузера"; color: #e2e8f0; font-size: 20px; vertical-alignment: center; }
-            Text { text: "листайте ↕"; color: #64748b; font-size: 14px; vertical-alignment: center; horizontal-alignment: right; horizontal-stretch: 1; }
+            Text { text: "Slint · three browsers"; color: #e2e8f0; font-size: 20px; vertical-alignment: center; }
+            Text { text: "scroll ↕"; color: #64748b; font-size: 14px; vertical-alignment: center; horizontal-alignment: right; horizontal-stretch: 1; }
         }
         // A Flickable, not ScrollView: desktop styles' ScrollView only
         // scrolls by wheel, a panel needs a finger drag.

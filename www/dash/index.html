@@ -1,0 +1,207 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- A plant dashboard for an 800x480 panel, on made-up data that moves:
+     cards, SVG bar charts and a sparkline, status chips, a tabbed list (tap
+     the card) and an event log. Scripts only touch what changed, so a frame
+     that changes nothing costs nothing. -->
+<style>
+body { margin: 0; background: #080b11; color: #e8edf5; font-size: 13px; }
+.top { display: flex; align-items: center; justify-content: space-between; height: 34px; padding: 0 12px; background: #0e131c; border-bottom: 1px solid #1c2433; }
+.brand { font-size: 15px; font-weight: bold; color: #38bdf8; }
+.muted { color: #7c899e; font-size: 11px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 8px 8px 0 8px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 8px 8px 0 8px; }
+.card { background: #111723; border: 1px solid #1c2433; border-radius: 10px; padding: 8px 10px; }
+.head { display: flex; justify-content: space-between; }
+.big { font-size: 28px; font-weight: bold; margin-top: 2px; }
+.row { display: flex; justify-content: space-between; margin-top: 3px; font-size: 12px; }
+.up { color: #34d399; }
+.down { color: #f87171; }
+.warn { color: #fbbf24; }
+.violet { color: #a78bfa; }
+.sky { color: #38bdf8; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 8px 0 8px; }
+.chip { display: flex; gap: 5px; background: #111723; border: 1px solid #1c2433; border-radius: 7px; padding: 4px 8px; font-size: 11px; }
+.item { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid #161d2a; font-size: 12px; }
+.tabs { display: flex; gap: 6px; }
+.tab { padding: 2px 8px; border-radius: 6px; font-size: 11px; color: #7c899e; background: #0e131c; border: 1px solid #1c2433; }
+.tab.on { color: #38bdf8; border-color: #38bdf8; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="brand">Plant 3 · line overview</div>
+    <div><span id="shift" class="muted">shift A</span>   <span id="clock" class="brand" style="font-size:14px;"></span></div>
+  </div>
+
+  <div class="grid3">
+    <div class="card" style="border-left: 3px solid #a78bfa;">
+      <div class="head"><span class="muted">Output today, units</span><span id="o-plan" class="muted"></span></div>
+      <div id="o-today" class="big violet">—</div>
+      <div class="row"><span class="muted">per hour</span><b id="o-rate">—</b></div>
+      <div class="row"><span class="muted">scrap</span><b id="o-scrap">—</b></div>
+    </div>
+    <div class="card" style="border-left: 3px solid #38bdf8;">
+      <div class="head"><span class="muted">Energy today, kWh</span><span id="e-peak" class="muted"></span></div>
+      <div id="e-today" class="big sky">—</div>
+      <div class="row"><span class="muted">per unit</span><b id="e-unit">—</b></div>
+      <div class="row"><span class="muted">vs yesterday</span><b id="e-trend">—</b></div>
+    </div>
+    <div id="t-card" class="card" style="border-left: 3px solid #34d399;">
+      <div class="head"><span class="muted">Oven 2 · temperature</span><b id="t-set" class="muted">set 180 °C</b></div>
+      <div class="head"><span id="t-now" class="big">—</span><span id="t-note" class="muted" style="padding-top:12px;">—</span></div>
+      <svg width="226" height="34" viewBox="0 0 226 34">
+        <path d="M 0 33 L 226 33" stroke="#1c2433" stroke-width="1"/>
+        <path id="t-spark" d="M 0 33" fill="none" stroke="#34d399" stroke-width="2"/>
+      </svg>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="head"><span class="muted">Output, last 14 days</span><span id="c-out" class="muted"></span></div>
+      <svg width="366" height="96" viewBox="0 0 366 96">
+        <rect id="ob0" x="2" y="94" width="22" height="2" rx="3" fill="#a78bfa"/><rect id="ob1" x="28" y="94" width="22" height="2" rx="3" fill="#a78bfa"/><rect id="ob2" x="54" y="94" width="22" height="2" rx="3" fill="#a78bfa"/><rect id="ob3" x="80" y="94" width="22" height="2" rx="3" fill="#a78bfa"/><rect id="ob4" x="106" y="94" width="22" height="2" rx="3" fill="#a78bfa"/><rect id="ob5" x="132" y="94" width="22" height="2" rx="3" fill="#a78bfa"/><rect id="ob6" x="158" y="94" width="22" height="2" rx="3" fill="#a78bfa"/><rect id="ob7" x="184" y="94" width="22" height="2" rx="3" fill="#a78bfa"/><rect id="ob8" x="210" y="94" width="22" height="2" rx="3" fill="#a78bfa"/><rect id="ob9" x="236" y="94" width="22" height="2" rx="3" fill="#a78bfa"/><rect id="ob10" x="262" y="94" width="22" height="2" rx="3" fill="#a78bfa"/><rect id="ob11" x="288" y="94" width="22" height="2" rx="3" fill="#a78bfa"/><rect id="ob12" x="314" y="94" width="22" height="2" rx="3" fill="#a78bfa"/><rect id="ob13" x="340" y="94" width="22" height="2" rx="3" fill="#f0abfc"/>
+      </svg>
+    </div>
+    <div class="card">
+      <div class="head"><span class="muted">Energy, last 14 days</span><span id="c-energy" class="muted"></span></div>
+      <svg width="366" height="96" viewBox="0 0 366 96">
+        <rect id="eb0" x="2" y="94" width="22" height="2" rx="3" fill="#38bdf8"/><rect id="eb1" x="28" y="94" width="22" height="2" rx="3" fill="#38bdf8"/><rect id="eb2" x="54" y="94" width="22" height="2" rx="3" fill="#38bdf8"/><rect id="eb3" x="80" y="94" width="22" height="2" rx="3" fill="#38bdf8"/><rect id="eb4" x="106" y="94" width="22" height="2" rx="3" fill="#38bdf8"/><rect id="eb5" x="132" y="94" width="22" height="2" rx="3" fill="#38bdf8"/><rect id="eb6" x="158" y="94" width="22" height="2" rx="3" fill="#38bdf8"/><rect id="eb7" x="184" y="94" width="22" height="2" rx="3" fill="#38bdf8"/><rect id="eb8" x="210" y="94" width="22" height="2" rx="3" fill="#38bdf8"/><rect id="eb9" x="236" y="94" width="22" height="2" rx="3" fill="#38bdf8"/><rect id="eb10" x="262" y="94" width="22" height="2" rx="3" fill="#38bdf8"/><rect id="eb11" x="288" y="94" width="22" height="2" rx="3" fill="#38bdf8"/><rect id="eb12" x="314" y="94" width="22" height="2" rx="3" fill="#38bdf8"/><rect id="eb13" x="340" y="94" width="22" height="2" rx="3" fill="#7dd3fc"/>
+      </svg>
+    </div>
+  </div>
+
+  <div id="lines" class="chips"></div>
+
+  <div class="grid2">
+    <div id="tabs-card" class="card" style="height: 118px;">
+      <div class="head"><div class="tabs"><span id="t-alarms" class="tab on">Alarms</span><span id="t-shifts" class="tab">Shifts</span></div><span class="muted">tap to switch</span></div>
+      <div id="list" style="margin-top:4px;"></div>
+    </div>
+    <div class="card" style="height: 118px;">
+      <div class="head"><span class="muted">Events</span><span id="ev-count" class="muted"></span></div>
+      <div id="events" style="margin-top:4px;"></div>
+    </div>
+  </div>
+
+  <script>
+    var shown = {}, tab = 'alarms';
+    function $(id) { return document.getElementById(id); }
+    function pad(n) { return n < 10 ? '0' + n : '' + n; }
+    function grp(n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+    // Only what changed reaches the engine: unchanged frames cost nothing.
+    function text(id, t) { if (shown[id] !== t) { shown[id] = t; $(id).textContent = t; } }
+    function attr(id, k, v) { var key = id + '.' + k; if (shown[key] !== v) { shown[key] = v; $(id).setAttribute(k, v); } }
+    function cls(id, c) { var key = id + '.class'; if (shown[key] !== c) { shown[key] = c; $(id).className = c; } }
+    function html(id, h) { var key = id + '.html'; if (shown[key] !== h) { shown[key] = h; $(id).innerHTML = h; } }
+
+    // Made-up plant data, moving a little every few seconds.
+    var seed = 7;
+    function rnd() { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }
+    var out = [], energy = [];
+    for (var i = 0; i < 14; i++) { out.push(3800 + rnd() * 1400); energy.push(9200 + rnd() * 2600); }
+    var state = { today: 2140, scrap: 1.8, kwh: 5310, temp: 178.5, hist: [] };
+    for (var j = 0; j < 60; j++) state.hist.push(176 + rnd() * 6);
+    var lines = [['Line 1', 'up'], ['Line 2', 'up'], ['Packing', 'up'], ['Oven 2', 'up'], ['Press 4', 'warn'], ['Robot cell', 'up'], ['Chiller', 'down']];
+    var alarms = [['Chiller: low flow', 'down'], ['Press 4: oil temp high', 'warn'], ['Line 2: guard opened', 'muted'], ['Oven 2: door cycle', 'muted']];
+    var shifts = [['Shift A · 06:00–14:00', '2,140'], ['Shift C · 22:00–06:00', '1,980'], ['Shift B · 14:00–22:00', '2,410'], ['Shift A · yesterday', '2,205']];
+    var events = [['08:41', 'batch 1182 done', 'up'], ['08:12', 'Press 4 warning', 'warn'], ['07:55', 'Chiller stopped', 'down'], ['07:30', 'shift A started', 'sky']];
+
+    // Bar heights are tweened to their values.
+    var tweens = {};
+    function tween(key, to, apply) {
+      var t = tweens[key] || { v: 0, from: 0, to: to, at: 0 };
+      if (t.to !== to) { t.from = t.v; t.to = to; t.at = Date.now(); }
+      tweens[key] = t; t.apply = apply;
+    }
+    function step() {
+      var now = Date.now(), busy = false;
+      for (var k in tweens) {
+        var t = tweens[k], p = Math.min(1, (now - t.at) / 700);
+        var e = 1 - Math.pow(1 - p, 3);
+        t.v = t.from + (t.to - t.from) * e;
+        t.apply(t.v);
+        if (p < 1) busy = true;
+      }
+      setTimeout(step, busy ? 33 : 250);
+    }
+    function bars(prefix, days) {
+      var max = Math.max.apply(null, days);
+      for (var b = 0; b < 14; b++) {
+        (function (id, h) {
+          tween(id, h, function (x) { var hh = Math.max(2, Math.round(x)); attr(id, 'y', String(94 - hh)); attr(id, 'height', String(hh)); });
+        })(prefix + b, days[b] / max * 90);
+      }
+      return max;
+    }
+
+    function render() {
+      var now = new Date();
+      text('clock', pad(now.getHours()) + ':' + pad(now.getMinutes()));
+      tween('o-today', state.today, function (v) { text('o-today', grp(v)); });
+      text('o-plan', 'plan 4,200');
+      text('o-rate', grp(state.today / 8.5));
+      text('o-scrap', state.scrap.toFixed(1) + ' %');
+      cls('o-scrap', state.scrap > 2.5 ? 'down' : 'up');
+      tween('e-today', state.kwh, function (v) { text('e-today', grp(v)); });
+      text('e-peak', 'peak 412 kW');
+      text('e-unit', (state.kwh / state.today).toFixed(2));
+      var tr = Math.round((state.kwh / 5520 - 1) * 100);
+      text('e-trend', (tr >= 0 ? '+' : '') + tr + '%');
+      cls('e-trend', tr <= 0 ? 'up' : 'down');
+      out[13] = state.today; energy[13] = state.kwh;
+      text('c-out', 'max ' + grp(bars('ob', out)));
+      text('c-energy', 'max ' + grp(bars('eb', energy)));
+
+      var d = state.temp - 180, lv = Math.abs(d) < 3 ? ['up', 'in range', '#34d399'] : Math.abs(d) < 6 ? ['warn', 'drifting', '#fbbf24'] : ['down', 'out of range', '#f87171'];
+      text('t-now', state.temp.toFixed(1) + ' °C');
+      $('t-now').style.color = lv[2];
+      $('t-card').style.borderLeftColor = lv[2];
+      text('t-note', lv[1]); cls('t-note', lv[0]);
+      var hist = state.hist, lo = Math.min.apply(null, hist), hi = Math.max.apply(null, hist), p = '';
+      for (var i = 0; i < hist.length; i++) {
+        var x = (i / (hist.length - 1) * 224 + 1).toFixed(1), y = (31 - (hist[i] - lo) / Math.max(1, hi - lo) * 28).toFixed(1);
+        p += (i ? ' L ' : 'M ') + x + ' ' + y;
+      }
+      attr('t-spark', 'd', p);
+      attr('t-spark', 'stroke', lv[2]);
+
+      var lh = '';
+      for (var l = 0; l < lines.length; l++) lh += '<div class="chip"><span class="' + lines[l][1] + '">●</span>' + lines[l][0] + '</div>';
+      html('lines', lh);
+
+      var rows = tab == 'alarms' ? alarms : shifts, th = '';
+      for (var r = 0; r < 4; r++) {
+        th += tab == 'alarms'
+          ? '<div class="item"><span class="' + rows[r][1] + '">' + rows[r][0] + '</span><span class="muted">active</span></div>'
+          : '<div class="item"><span>' + rows[r][0] + '</span><b>' + rows[r][1] + '</b></div>';
+      }
+      html('list', th);
+      var eh = '';
+      for (var e = 0; e < 4; e++) eh += '<div class="item"><span class="muted">' + events[e][0] + '</span><span class="' + events[e][2] + '">' + events[e][1] + '</span></div>';
+      html('events', eh);
+      text('ev-count', events.length + ' today');
+    }
+
+    // The plant moves on.
+    function tick() {
+      state.today += Math.round(10 + rnd() * 14);
+      state.kwh += Math.round(20 + rnd() * 30);
+      state.scrap = Math.max(0.6, Math.min(3.4, state.scrap + (rnd() - 0.5) * 0.3));
+      state.temp = Math.max(170, Math.min(189, state.temp + (rnd() - 0.48) * 1.6));
+      state.hist.push(state.temp); state.hist.shift();
+      render();
+    }
+
+    function switchTab(t) { tab = t; cls('t-alarms', t == 'alarms' ? 'tab on' : 'tab'); cls('t-shifts', t == 'shifts' ? 'tab on' : 'tab'); render(); }
+    // A resistive panel is not precise: anywhere on the card switches.
+    $('tabs-card').onclick = function () { switchTab(tab == 'alarms' ? 'shifts' : 'alarms'); };
+    render(); step();
+    setInterval(tick, 2000);
+    setInterval(function () { switchTab(tab == 'alarms' ? 'shifts' : 'alarms'); }, 12000);
+  </script>
+</body>
+</html>

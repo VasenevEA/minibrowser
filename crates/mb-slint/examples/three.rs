@@ -37,7 +37,7 @@ fn main() {
     app.set_titles(ModelRc::from(Rc::new(VecModel::from(pages.iter().map(name).collect::<Vec<_>>()))));
     let engine = if blitz { "Blitz" } else { "mb-core" };
     app.set_notes(ModelRc::from(Rc::new(VecModel::from(
-        (0..3).map(|_| SharedString::from(format!("{engine} + QuickJS, 800×480, показан в 2/3"))).collect::<Vec<_>>(),
+        (0..3).map(|_| SharedString::from(format!("{engine} + QuickJS, 800×480, shown at 2/3"))).collect::<Vec<_>>(),
     ))));
 
     let open = {

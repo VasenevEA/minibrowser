@@ -1,24 +1,24 @@
 # Pixel-Perfect Comparison Guide
 
-Методология попиксельного сравнения рендеринга виджетов.
-Применимо к: MiniBrowser vs Browser, ScreenMaster IDE(SX) vs Slint(Rust), любые два рендерера.
+A methodology for pixel-by-pixel comparison of widget rendering.
+Applies to: MiniBrowser vs a browser, ScreenMaster IDE(SX) vs Slint(Rust), or any two renderers.
 
-## Концепция
+## Concept
 
-Два рендерера рисуют одну и ту же страницу/виджет. Скриншоты сравниваются попиксельно.
-Метрики:
-- **Exact match %** — пиксели совпадают полностью (RGB)
-- **Close match %** — пиксели отличаются не более чем на threshold (default 30 на канал)
-- **Diff image** — визуализация: чёрный=совпадает, жёлтый=близко, красный=разница
+Two renderers draw the same page/widget. The screenshots are compared pixel by pixel.
+Metrics:
+- **Exact match %** — pixels match exactly (RGB)
+- **Close match %** — pixels differ by no more than the threshold (default 30 per channel)
+- **Diff image** — visualization: black = match, yellow = close, red = different
 
-## Архитектура
+## Architecture
 
 ```
 ┌─────────────────┐    ┌─────────────────┐
 │  Renderer A      │    │  Renderer B      │
 │  (ScreenMaster)  │    │  (Slint/Rust)    │
 │                  │    │                  │
-│  Виджет → PNG    │    │  Виджет → PNG    │
+│  Widget → PNG    │    │  Widget → PNG    │
 └────────┬─────────┘    └────────┬─────────┘
          │                       │
          └───────┬───────────────┘
@@ -33,41 +33,41 @@
         └─────────────────┘
 ```
 
-## Быстрый старт
+## Quick start
 
-### 1. Установка
+### 1. Installation
 
 ```bash
 pip3 install Pillow playwright
 python3 -m playwright install firefox
 ```
 
-### 2. Скрипт сравнения двух изображений
+### 2. Script to compare two images
 
 ```python
 #!/usr/bin/env python3
-"""compare.py — сравнение двух скриншотов попиксельно."""
+"""compare.py — pixel-by-pixel comparison of two screenshots."""
 
 from PIL import Image
 import sys
 
 def compare(img_a_path, img_b_path, threshold=30, output_diff=None):
     """
-    Сравнить два изображения.
+    Compare two images.
     
     Args:
-        img_a_path: путь к скриншоту рендерера A
-        img_b_path: путь к скриншоту рендерера B
-        threshold: допуск на канал (0-255). 30 = ~12% допуск
-        output_diff: путь для diff-изображения (опционально)
+        img_a_path: path to renderer A screenshot
+        img_b_path: path to renderer B screenshot
+        threshold: per-channel tolerance (0-255). 30 = ~12% tolerance
+        output_diff: path for the diff image (optional)
     
     Returns:
-        dict с exact_pct, close_pct, total_pixels
+        dict with exact_pct, close_pct, total_pixels
     """
     a = Image.open(img_a_path).convert('RGB')
     b = Image.open(img_b_path).convert('RGB')
     
-    # Привести к одному размеру
+    # Bring to the same size
     w = min(a.width, b.width)
     h = min(a.height, b.height)
     a = a.resize((w, h))
@@ -88,12 +88,12 @@ def compare(img_a_path, img_b_path, threshold=30, output_diff=None):
         
         if dr == 0 and dg == 0 and db == 0:
             exact += 1
-            diff_pixels.append((0, 0, 0))       # чёрный — идеально
+            diff_pixels.append((0, 0, 0))       # black — perfect
         elif dr <= threshold and dg <= threshold and db <= threshold:
             close += 1
-            diff_pixels.append((255, 255, 0))    # жёлтый — близко
+            diff_pixels.append((255, 255, 0))    # yellow — close
         else:
-            diff_pixels.append((255, 0, 0))      # красный — разница
+            diff_pixels.append((255, 0, 0))      # red — different
     
     result = {
         'exact_pct': exact / total * 100,
@@ -112,7 +112,7 @@ def compare(img_a_path, img_b_path, threshold=30, output_diff=None):
 
 
 def create_comparison(img_a_path, img_b_path, output_path, labels=('A', 'B')):
-    """Создать side-by-side сравнение: A | B | Diff"""
+    """Create a side-by-side comparison: A | B | Diff"""
     from PIL import ImageDraw
     
     a = Image.open(img_a_path).convert('RGB')
@@ -157,10 +157,10 @@ if __name__ == '__main__':
     print(f"Total pixels: {result['total_pixels']}")
 ```
 
-### 3. Использование
+### 3. Usage
 
 ```bash
-# Простое сравнение
+# Simple comparison
 python3 compare.py screenshot_a.png screenshot_b.png diff.png
 
 # Side-by-side
@@ -172,31 +172,31 @@ print(f'Match: {result[\"exact_pct\"]:.1f}%')
 "
 ```
 
-## Применение для ScreenMaster IDE(SX) → Slint(Rust)
+## Applying it to ScreenMaster IDE(SX) → Slint(Rust)
 
-### Пайплайн
+### Pipeline
 
 ```
-1. В ScreenMaster IDE создать виджет (кнопка, индикатор, график...)
-2. Экспортировать скриншот виджета → reference.png
-3. Реализовать тот же виджет в Slint
-4. Сделать скриншот Slint рендера → slint.png
-5. Запустить: python3 compare.py reference.png slint.png diff.png
-6. Анализировать diff → исправить → повторить до 90%+
+1. Create a widget in ScreenMaster IDE (button, indicator, chart...)
+2. Export a screenshot of the widget → reference.png
+3. Implement the same widget in Slint
+4. Take a screenshot of the Slint render → slint.png
+5. Run: python3 compare.py reference.png slint.png diff.png
+6. Analyze the diff → fix → repeat until 90%+
 ```
 
-### Автоматизация для набора виджетов
+### Automating a set of widgets
 
 ```python
 #!/usr/bin/env python3
-"""batch_compare.py — сравнение набора виджетов."""
+"""batch_compare.py — compare a set of widgets."""
 
 import os
 from compare import compare, create_comparison
 
-WIDGETS_DIR = "widgets"  # папка с парами скриншотов
+WIDGETS_DIR = "widgets"  # folder with screenshot pairs
 
-# Структура:
+# Layout:
 # widgets/
 #   button/
 #     screenmaster.png
@@ -237,21 +237,21 @@ print(f"AVERAGE: exact={avg_exact:.1f}%  close={avg_close:.1f}%")
 print(f"Widgets tested: {len(results)}")
 
 # Worst performers
-print("\nНужно улучшить:")
+print("\nNeeds improvement:")
 for name, r in sorted(results, key=lambda x: x[1]['exact_pct']):
     if r['exact_pct'] < 80:
         print(f"  {name}: {r['exact_pct']:.1f}%")
 ```
 
-### Структура директории
+### Directory layout
 
 ```
 project/
 ├── widgets/
 │   ├── button_start/
-│   │   ├── screenmaster.png    ← скриншот из ScreenMaster
-│   │   ├── slint.png           ← скриншот из Slint
-│   │   ├── diff.png            ← автогенерация
+│   │   ├── screenmaster.png    ← screenshot from ScreenMaster
+│   │   ├── slint.png           ← screenshot from Slint
+│   │   ├── diff.png            ← auto-generated
 │   │   └── comparison.png      ← side-by-side
 │   ├── gauge_temperature/
 │   ├── indicator_alarm/
@@ -260,42 +260,42 @@ project/
 │   └── ...
 ├── compare.py
 ├── batch_compare.py
-└── results.md                  ← отчёт с метриками
+└── results.md                  ← report with metrics
 ```
 
-## Что влияет на pixel match
+## What affects pixel match
 
-### Высокий impact (5-20% разницы)
-- **Шрифт** — разные font family/metrics дают сдвиг текста
-- **Размеры элементов** — padding/margin/border отличия
-- **Цвета** — RGB vs HSL, гамма-коррекция
-- **Anti-aliasing** — сглаживание шрифтов и линий
+### High impact (5-20% difference)
+- **Font** — different font family/metrics shift the text
+- **Element sizes** — padding/margin/border differences
+- **Colors** — RGB vs HSL, gamma correction
+- **Anti-aliasing** — smoothing of fonts and lines
 
-### Средний impact (2-5%)
-- **Line-height** — межстрочный интервал
-- **Вертикальное выравнивание** — baseline vs top vs center
-- **Border-radius** — разные алгоритмы скругления
-- **Тени** — box-shadow, text-shadow
+### Medium impact (2-5%)
+- **Line-height** — line spacing
+- **Vertical alignment** — baseline vs top vs center
+- **Border-radius** — different rounding algorithms
+- **Shadows** — box-shadow, text-shadow
 
-### Низкий impact (<2%)
-- **Subpixel rendering** — позиционирование с дробными пикселями
-- **Порядок рисования** — z-index, порядок overlay
+### Low impact (<2%)
+- **Subpixel rendering** — positioning at fractional pixels
+- **Paint order** — z-index, overlay order
 
-## Пороги качества
+## Quality thresholds
 
-| Уровень | Exact match | Описание |
+| Level | Exact match | Description |
 |---------|-------------|----------|
-| 🔴 Плохо | <60% | Совсем другой вид |
-| 🟡 Базовый | 60-75% | Структура похожа, детали отличаются |
-| 🟢 Хорошо | 75-85% | Близко, мелкие различия |
-| ✅ Отлично | 85-95% | Почти идентично |
-| 💎 Идеально | >95% | Неотличимо |
+| 🔴 Poor | <60% | Looks completely different |
+| 🟡 Basic | 60-75% | Similar structure, details differ |
+| 🟢 Good | 75-85% | Close, minor differences |
+| ✅ Excellent | 85-95% | Nearly identical |
+| 💎 Perfect | >95% | Indistinguishable |
 
-## Советы
+## Tips
 
-1. **Начинай с простых виджетов** — кнопка, метка, индикатор
-2. **Фиксируй размер** — одинаковый viewport для обоих рендереров
-3. **Используй одинаковый шрифт** — это даёт +10-15% сразу
-4. **Итерируй быстро** — diff показывает конкретно где проблема
-5. **Close match важнее exact** — если close >90%, визуально уже хорошо
-6. **Автоматизируй CI** — запускай сравнение на каждый коммит
+1. **Start with simple widgets** — button, label, indicator
+2. **Fix the size** — same viewport for both renderers
+3. **Use the same font** — this alone gives +10-15%
+4. **Iterate fast** — the diff shows exactly where the problem is
+5. **Close match matters more than exact** — if close is >90%, it already looks good
+6. **Automate in CI** — run the comparison on every commit

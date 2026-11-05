@@ -16,19 +16,19 @@
   #count { color: #fde68a; }
 </style></head>
 <body>
-<header><h1>Живой DOM: createElement, classList, события</h1><span id="count">0 плиток</span></header>
+<header><h1>Live DOM: createElement, classList, events</h1><span id="count">0 tiles</span></header>
 <div class="grid" id="grid"></div>
 <div class="bar">
-  <button id="add">+ плитка</button>
-  <button id="all">вкл. все</button>
-  <button id="alarm" data-level="2">тревога</button>
-  <button id="clear">очистить</button>
+  <button id="add">+ tile</button>
+  <button id="all">all on</button>
+  <button id="alarm" data-level="2">alarm</button>
+  <button id="clear">clear</button>
 </div>
 <div id="log"></div>
 <script>
   const grid = document.querySelector('#grid');
   const log = document.getElementById('log');
-  const names = ['Насос', 'Клапан', 'Котёл', 'Вентилятор', 'Горелка', 'Дымосос', 'Задвижка', 'Датчик'];
+  const names = ['Pump', 'Valve', 'Boiler', 'Fan', 'Burner', 'Exhauster', 'Gate valve', 'Sensor'];
   let n = 0;
   function say(msg) {
     const line = document.createElement('div');
@@ -38,7 +38,7 @@
   }
   function count() {
     const on = grid.querySelectorAll('.tile.on').length;
-    document.getElementById('count').textContent = grid.children.length + ' плиток, вкл. ' + on;
+    document.getElementById('count').textContent = grid.children.length + ' tiles, on: ' + on;
   }
   function addTile() {
     const t = document.createElement('div');
@@ -47,7 +47,7 @@
     t.innerHTML = names[n % names.length] + '<b>' + (20 + n * 3) + '</b>';
     grid.appendChild(t);
     n++;
-    say('добавлена «' + names[(n - 1) % names.length] + '»');
+    say('added "' + names[(n - 1) % names.length] + '"');
     count();
   }
   // One listener on the grid for every tile (event delegation).
@@ -55,29 +55,29 @@
     const t = e.target.closest('.tile');
     if (!t) return;
     const on = t.classList.toggle('on');
-    say('плитка ' + t.dataset.idx + (on ? ' включена' : ' выключена'));
+    say('tile ' + t.dataset.idx + (on ? ' on' : ' off'));
     count();
   });
   document.getElementById('add').addEventListener('click', addTile);
   document.getElementById('all').onclick = function () {
     grid.querySelectorAll('.tile').forEach(function (t) { t.classList.add('on'); t.classList.remove('alarm'); });
-    say('все включены'); count();
+    say('all on'); count();
   };
   document.getElementById('alarm').addEventListener('click', function (e) {
     const tiles = grid.querySelectorAll('.tile');
     if (tiles.length) tiles[tiles.length - 1].classList.add('alarm');
-    say('тревога, уровень ' + e.currentTarget.dataset.level);
+    say('alarm, level ' + e.currentTarget.dataset.level);
   });
   document.getElementById('clear').addEventListener('click', function () {
     while (grid.firstChild) grid.removeChild(grid.firstChild);
-    say('очищено'); count();
+    say('cleared'); count();
   });
   document.addEventListener('DOMContentLoaded', function () {
     for (let i = 0; i < 6; i++) addTile();
     grid.children[1].classList.add('on');
     grid.children[4].classList.add('on');
     count();
-    say('готово, ' + document.querySelectorAll('button').length + ' кнопок');
+    say('ready, ' + document.querySelectorAll('button').length + ' buttons');
   });
 </script>
 </body></html>

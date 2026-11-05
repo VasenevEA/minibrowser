@@ -20,13 +20,13 @@ body { margin: 0; background: #0a0d13; color: #e8edf5; font-size: 14px; }
 </head>
 <body>
   <div class="top">
-    <div class="brand">MiniBrowser · анимации</div>
+    <div class="brand">MiniBrowser · animations</div>
     <div><span id="fps" class="muted">—</span>  <span id="clock" class="muted"></span></div>
   </div>
 
   <div class="row">
     <div class="card">
-      <div class="title">Давление, бар</div>
+      <div class="title">Pressure, bar</div>
       <svg width="200" height="116" viewBox="0 0 200 116">
         <path d="M 20 106 A 80 80 0 0 1 180 106" fill="none" stroke="#1f2a3d" stroke-width="14" stroke-linecap="round"/>
         <path id="arc" d="M 20 106 A 80 80 0 0 1 20 106" fill="none" stroke="#34d399" stroke-width="14" stroke-linecap="round"/>
@@ -36,11 +36,11 @@ body { margin: 0; background: #0a0d13; color: #e8edf5; font-size: 14px; }
         <circle cx="100" cy="106" r="8" fill="#e8edf5"/>
       </svg>
       <div id="pv" class="value">0.0</div>
-      <div class="btns"><div id="pdn" class="btn">−</div><div id="pset" class="muted" style="width:60px;padding-top:10px;">цель 3</div><div id="pup" class="btn">+</div></div>
+      <div class="btns"><div id="pdn" class="btn">−</div><div id="pset" class="muted" style="width:60px;padding-top:10px;">target 3</div><div id="pup" class="btn">+</div></div>
     </div>
 
     <div class="card">
-      <div class="title">Вентилятор</div>
+      <div class="title">Fan</div>
       <svg width="132" height="132" viewBox="0 0 132 132">
         <circle cx="66" cy="66" r="62" fill="#0f172a" stroke="#334155" stroke-width="3"/>
         <g id="fan" transform="rotate(0 66 66)">
@@ -51,12 +51,12 @@ body { margin: 0; background: #0a0d13; color: #e8edf5; font-size: 14px; }
         </g>
         <circle cx="66" cy="66" r="9" fill="#e8edf5"/>
       </svg>
-      <div id="rpm" class="value" style="color:#38bdf8;">0 об/мин</div>
+      <div id="rpm" class="value" style="color:#38bdf8;">0 rpm</div>
       <div class="btns"><div id="f0" class="btn on">0</div><div id="f1" class="btn">1</div><div id="f2" class="btn">2</div><div id="f3" class="btn">3</div></div>
     </div>
 
     <div class="card">
-      <div class="title">Бак и клапан</div>
+      <div class="title">Tank and valve</div>
       <svg width="190" height="132" viewBox="0 0 190 132">
         <path d="M 0 30 L 70 30" stroke="#1f2a3d" stroke-width="10"/>
         <path id="flow" d="M 0 30 L 70 30" stroke="#38bdf8" stroke-width="4" stroke-dasharray="10 8" stroke-dashoffset="0" opacity="0"/>
@@ -65,7 +65,7 @@ body { margin: 0; background: #0a0d13; color: #e8edf5; font-size: 14px; }
         <path id="wave" d="M 73 100 L 171 100" stroke="#7dd3fc" stroke-width="3" fill="none"/>
       </svg>
       <div id="lv" class="value" style="color:#38bdf8;">20%</div>
-      <div class="btns"><div id="valve" class="btn wide">ОТКРЫТЬ</div></div>
+      <div class="btns"><div id="valve" class="btn wide">OPEN</div></div>
     </div>
   </div>
 
@@ -73,7 +73,7 @@ body { margin: 0; background: #0a0d13; color: #e8edf5; font-size: 14px; }
     <svg width="778" height="118" viewBox="0 0 778 118">
       <circle id="ball" cx="50" cy="50" r="30" fill="#a78bfa"/>
     </svg>
-    <div class="hud">Поймай шарик: тапни по нему</div>
+    <div class="hud">Catch the ball: tap it</div>
     <div id="score" class="score">0</div>
   </div>
 
@@ -86,8 +86,8 @@ body { margin: 0; background: #0a0d13; color: #e8edf5; font-size: 14px; }
 
     // Pressure gauge: the needle eases toward the target.
     var target = 3, p = 0, pShown = -1;
-    $('pup').onclick = function () { target = Math.min(6, target + 1); $('pset').textContent = 'цель ' + target; };
-    $('pdn').onclick = function () { target = Math.max(0, target - 1); $('pset').textContent = 'цель ' + target; };
+    $('pup').onclick = function () { target = Math.min(6, target + 1); $('pset').textContent = 'target ' + target; };
+    $('pdn').onclick = function () { target = Math.max(0, target - 1); $('pset').textContent = 'target ' + target; };
 
     // Fan: speed ramps with inertia.
     var speed = 0, want = 0, angle = 0;
@@ -102,7 +102,7 @@ body { margin: 0; background: #0a0d13; color: #e8edf5; font-size: 14px; }
     var open = false, level = 20, flowOff = 0, phase = 0;
     $('valve').onclick = function () {
       open = !open;
-      $('valve').textContent = open ? 'ЗАКРЫТЬ' : 'ОТКРЫТЬ';
+      $('valve').textContent = open ? 'CLOSE' : 'OPEN';
       $('valve').className = open ? 'btn wide on' : 'btn wide';
       $('flow').setAttribute('opacity', open ? '1' : '0');
     };
@@ -142,7 +142,7 @@ body { margin: 0; background: #0a0d13; color: #e8edf5; font-size: 14px; }
         angle = (angle + speed * 400 * dt) % 360;
         $('fan').setAttribute('transform', 'rotate(' + angle.toFixed(0) + ' 66 66)');
       }
-      text('rpm', Math.round(speed * 50) * 10 + ' об/мин');
+      text('rpm', Math.round(speed * 50) * 10 + ' rpm');
 
       // Tank
       var before = level;

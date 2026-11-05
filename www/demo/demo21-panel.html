@@ -21,39 +21,39 @@ body { margin: 0; background: #0b0f17; color: #e6ebf2; font-size: 14px; }
 </head>
 <body>
   <div class="top">
-    <div class="title">Котельная №1 · T113</div>
-    <div><span id="state" class="ok">● В работе</span>  <span id="clock" class="muted">--:--:--</span></div>
+    <div class="title">Boiler Room #1 · T113</div>
+    <div><span id="state" class="ok">● Running</span>  <span id="clock" class="muted">--:--:--</span></div>
   </div>
 
   <div class="grid">
     <div class="card" style="border-left: 4px solid #f97316;">
-      <div class="muted">Подача, °C</div>
+      <div class="muted">Supply, °C</div>
       <div id="t1" class="value" style="color:#fb923c;">72.5</div>
-      <div class="row"><span class="muted">уставка <b id="sp">75</b></span>
+      <div class="row"><span class="muted">setpoint <b id="sp">75</b></span>
         <span><button id="dn" class="btn">−</button> <button id="up" class="btn">+</button></span></div>
     </div>
     <div class="card" style="border-left: 4px solid #38bdf8;">
-      <div class="muted">Обратка, °C</div>
+      <div class="muted">Return, °C</div>
       <div id="t2" class="value" style="color:#38bdf8;">58.2</div>
       <div class="bars" id="trend"></div>
     </div>
     <div class="card" style="border-left: 4px solid #34d399;">
-      <div class="muted">Насос</div>
-      <div id="pump" class="value ok">РАБОТА</div>
-      <div class="row"><span class="muted">P = <b id="p">3.2</b> бар</span>
-        <button id="pumpbtn" class="btn">СТОП</button></div>
+      <div class="muted">Pump</div>
+      <div id="pump" class="value ok">RUNNING</div>
+      <div class="row"><span class="muted">P = <b id="p">3.2</b> bar</span>
+        <button id="pumpbtn" class="btn">STOP</button></div>
     </div>
   </div>
 
   <div class="bottom">
     <div class="card">
-      <div class="muted" style="margin-bottom:4px;">Журнал</div>
+      <div class="muted" style="margin-bottom:4px;">Log</div>
       <div id="log"></div>
     </div>
     <div class="card">
-      <div class="muted">Тики таймера</div>
+      <div class="muted">Timer ticks</div>
       <div id="ticks" class="value" style="color:#a78bfa;">0</div>
-      <div class="muted">JS: QuickJS, setInterval 1 с</div>
+      <div class="muted">JS: QuickJS, setInterval 1 s</div>
     </div>
   </div>
 
@@ -73,11 +73,11 @@ body { margin: 0; background: #0b0f17; color: #e6ebf2; font-size: 14px; }
       document.getElementById('sp').textContent = sp;
       document.getElementById('p').textContent = p.toFixed(1);
       document.getElementById('ticks').textContent = ticks;
-      document.getElementById('pump').textContent = pumpOn ? 'РАБОТА' : 'СТОП';
+      document.getElementById('pump').textContent = pumpOn ? 'RUNNING' : 'STOPPED';
       document.getElementById('pump').style.color = pumpOn ? '#34d399' : '#f87171';
-      document.getElementById('pumpbtn').textContent = pumpOn ? 'СТОП' : 'ПУСК';
+      document.getElementById('pumpbtn').textContent = pumpOn ? 'STOP' : 'START';
       var hot = t1 > sp + 3;
-      document.getElementById('state').textContent = !pumpOn ? '● Насос стоит' : hot ? '● Перегрев' : '● В работе';
+      document.getElementById('state').textContent = !pumpOn ? '● Pump stopped' : hot ? '● Overheat' : '● Running';
       document.getElementById('state').style.color = !pumpOn ? '#f87171' : hot ? '#fbbf24' : '#34d399';
       var bars = '';
       for (var i = 0; i < hist.length; i++) {
@@ -99,18 +99,18 @@ body { margin: 0; background: #0b0f17; color: #e6ebf2; font-size: 14px; }
       p = pumpOn ? 3.2 + (Math.random() - 0.5) * 0.2 : 0.4;
       hist.push(t2);
       if (hist.length > 24) hist.shift();
-      if (t1 > sp + 3 && ticks % 5 == 0) note('warn', 'Подача выше уставки');
+      if (t1 > sp + 3 && ticks % 5 == 0) note('warn', 'Supply above setpoint');
       render();
     }
-    document.getElementById('up').onclick = function () { sp += 1; note('ok', 'Уставка ' + sp + ' °C'); render(); };
-    document.getElementById('dn').onclick = function () { sp -= 1; note('ok', 'Уставка ' + sp + ' °C'); render(); };
+    document.getElementById('up').onclick = function () { sp += 1; note('ok', 'Setpoint ' + sp + ' °C'); render(); };
+    document.getElementById('dn').onclick = function () { sp -= 1; note('ok', 'Setpoint ' + sp + ' °C'); render(); };
     document.getElementById('pumpbtn').onclick = function () {
       pumpOn = !pumpOn;
-      note(pumpOn ? 'ok' : 'bad', pumpOn ? 'Насос запущен' : 'Насос остановлен');
+      note(pumpOn ? 'ok' : 'bad', pumpOn ? 'Pump started' : 'Pump stopped');
       render();
     };
     for (var k = 0; k < 24; k++) hist.push(58 + Math.sin(k / 3) * 2);
-    note('ok', 'Система запущена');
+    note('ok', 'System started');
     render();
     setInterval(step, 1000);
   </script>

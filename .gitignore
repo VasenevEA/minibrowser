@@ -7,3 +7,4 @@ target-*/
 www/doom/doom.js
 www/doom/doom1.wad
 __pycache__/
+!docs/images/**

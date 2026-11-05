@@ -3,9 +3,9 @@ import { Meter } from './widgets.js';
 
 const root = document.getElementById('meters');
 const meters = [
-  new Meter(root, 'Температура подачи', 'temp', 40, 95),
-  new Meter(root, 'Давление', 'pres', 0, 6),
-  new Meter(root, 'Расход', 'flow', 0, 30),
+  new Meter(root, 'Supply temp', 'temp', 40, 95),
+  new Meter(root, 'Pressure', 'pres', 0, 6),
+  new Meter(root, 'Flow', 'flow', 0, 30),
 ];
 let t = 0;
 function step() {
@@ -16,4 +16,4 @@ function step() {
 }
 step();
 setInterval(step, 500);
-document.getElementById('info').textContent = 'Модулей загружено: main-demo31.js → widgets.js → format.js.';
+document.getElementById('info').textContent = 'Modules loaded: main-demo31.js → widgets.js → format.js.';
