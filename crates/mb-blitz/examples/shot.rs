@@ -1,11 +1,23 @@
 //! A page on Blitz to a PNG, with frame times:
-//!   cargo run -p mb-blitz --example shot -- page.html out.png [--wait MS] [--click X,Y]
+//!   cargo run -p mb-blitz --example shot [--features http] -- page.html|URL out.png [--wait MS] [--click X,Y]
 //! MB_CHECK=1 compares the incrementally painted pixels with a full repaint.
 use mb_blitz::BlitzPage;
 use mb_qjs::QuickJs;
 use std::time::Instant;
 
+/// Warnings to stderr (MB_LOG=1).
+struct Log;
+impl log::Log for Log {
+    fn enabled(&self, m: &log::Metadata) -> bool { m.level() <= log::Level::Warn && m.target().starts_with("mb") }
+    fn log(&self, r: &log::Record) { if self.enabled(r.metadata()) { eprintln!("{}: {}", r.level(), r.args()) } }
+    fn flush(&self) {}
+}
+
 fn main() {
+    if std::env::var_os("MB_LOG").is_some() {
+        let _ = log::set_logger(&Log);
+        log::set_max_level(log::LevelFilter::Warn);
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (mut wait, mut clicks) = (0f64, Vec::new());
     let mut i = 2;
@@ -22,11 +34,15 @@ fn main() {
         i += 1;
     }
     let (w, h) = (800, 480);
-    let html = std::fs::read_to_string(&args[0]).unwrap();
-    let dir = std::path::Path::new(&args[0]).parent().map(|p| p.to_path_buf()).unwrap_or_else(|| ".".into());
+    let web = args[0].starts_with("http://") || args[0].starts_with("https://");
+    let dir = if web { std::env::temp_dir() } else { std::path::Path::new(&args[0]).parent().map(|p| p.to_path_buf()).unwrap_or_else(|| ".".into()) };
     let mut page = BlitzPage::new(Box::new(QuickJs::with_files(&dir)), w, h).with_base(&dir);
     let t = Instant::now();
-    page.load(&html);
+    if web {
+        assert!(page.load_url(&args[0]), "load {}", args[0]);
+    } else {
+        page.load(&std::fs::read_to_string(&args[0]).unwrap());
+    }
     eprintln!("load {:.1} ms, {} nodes", t.elapsed().as_secs_f64() * 1e3, page.node_count());
     page.take_damage();
     eprintln!("scene: {}", page.scene_summary());

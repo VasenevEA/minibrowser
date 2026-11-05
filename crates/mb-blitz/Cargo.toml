@@ -20,6 +20,13 @@ peniko = "0.6"
 skrifa = "0.44"
 tiny-skia = { version = "0.12", default-features = false, features = ["std"] }
 
+ureq = { version = "3.5", optional = true, default-features = false, features = ["rustls", "gzip"] }
+
+[features]
+# Pages, images, stylesheets and scripts over http(s) (rustls).
+http = ["dep:ureq"]
+
 [dev-dependencies]
+log = "0.4"
 mb-qjs = { path = "../mb-qjs" }
 png = "0.17"

@@ -70,6 +70,8 @@ pub struct BlitzPage {
     trace: bool,
     /// Where the page's files are (images, stylesheets): its directory.
     base: Option<std::path::PathBuf>,
+    /// The page's own URL when it came from the web.
+    url: Option<String>,
 }
 
 impl BlitzPage {
@@ -94,6 +96,7 @@ impl BlitzPage {
             dirty: true,
             trace: std::env::var_os("MB_TRACE").is_some(),
             base: None,
+            url: None,
         }
     }
 
@@ -111,11 +114,24 @@ impl BlitzPage {
         }
     }
 
+    /// Loads the page at `url` (http, https; feature `http`): relative
+    /// images, stylesheets and scripts come from the same place.
+    pub fn load_url(&mut self, url: &str) -> bool {
+        let Some(body) = net::http_get(url) else { return false };
+        self.url = Some(url.to_string());
+        self.load(&String::from_utf8_lossy(&body));
+        true
+    }
+
     fn page_config(&self) -> DocumentConfig {
         let mut c = Self::config(self.width, self.height);
-        if let Some(base) = &self.base {
+        let files = self.base.clone().unwrap_or_else(|| std::path::PathBuf::from("/nonexistent"));
+        if let Some(url) = &self.url {
+            c.base_url = Some(url.clone());
+            c.net_provider = Some(Arc::new(net::Files::new(files)));
+        } else if let Some(base) = &self.base {
             c.base_url = Some(format!("file://{}/", base.display()));
-            c.net_provider = Some(Arc::new(net::Files::new(base.clone())));
+            c.net_provider = Some(Arc::new(net::Files::new(files)));
         }
         c
     }
@@ -125,6 +141,15 @@ impl BlitzPage {
         *self.doc.borrow_mut() = HtmlDocument::from_html(html, self.page_config());
         self.js.reset();
         self.last.clear();
+        // Scripts run here: what a page shows without them goes.
+        {
+            let mut doc = self.doc.borrow_mut();
+            let gone: Vec<_> = doc.query_selector_all("noscript").map(|v| v.to_vec()).unwrap_or_default();
+            let mut m = doc.mutate();
+            for n in gone {
+                m.remove_node(n);
+            }
+        }
         if !self.live {
             self.seed_js();
         }
@@ -236,7 +261,20 @@ impl BlitzPage {
         while let Some(id) = stack.pop() {
             let Some(node) = doc.get_node(id) else { continue };
             if node.element_data().is_some_and(|e| e.name.local == local_name!("script")) {
+                // Classic scripts only: not JSON data, templates or ES modules (yet).
+                let ty = node.attr(local_name!("type")).unwrap_or("").trim().to_ascii_lowercase();
+                if !matches!(ty.as_str(), "" | "text/javascript" | "application/javascript" | "text/ecmascript") {
+                    continue;
+                }
                 match node.attr(local_name!("src")).map(str::trim).filter(|s| !s.is_empty()) {
+                    // A web page's scripts come from the web.
+                    Some(src) if self.url.is_some() => {
+                        let full = doc.base_url().join(src).map(|u| u.to_string()).unwrap_or_else(|_| src.to_string());
+                        match net::http_get(&full) {
+                            Some(code) => out.push(String::from_utf8_lossy(&code).into_owned()),
+                            None => log::warn!("script {full}: not loaded"),
+                        }
+                    }
                     Some(src) => out.push(format!("__mb_include({})", js_string(src))),
                     None => {
                         let text = node.text_content();

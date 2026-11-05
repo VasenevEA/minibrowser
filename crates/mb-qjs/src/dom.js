@@ -215,6 +215,8 @@ var localStorage = {
   get length() { return Object.keys(__mb_storage).length; }
 };
 window.localStorage = localStorage;
+var sessionStorage = localStorage;
+window.sessionStorage = sessionStorage;
 
 function __mb_timer(fn, ms, repeat) {
   if (typeof fn !== 'function') return 0;
