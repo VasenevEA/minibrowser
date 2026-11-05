@@ -170,7 +170,8 @@ mod tests {
             let (w, h) = page.size();
             let (px, pw, ph) = page.full_page();
             assert_eq!((pw, ph), (w, h));
-            if page.last_damage().len() != 1 || page.last_damage()[0] != [0, 0, w as i32, h as i32] {
+            let damage = page.take_damage();
+            if damage.len() != 1 || damage[0] != [0, 0, w as i32, h as i32] {
                 partial += 1;
             }
             let full = mb_core::paint::paint(page.layout_tree().unwrap(), pw, ph);

@@ -75,8 +75,8 @@ pub struct Page {
     layout: Option<layout::LayoutBox>,
     /// No doctype: lay out as browsers do in quirks mode.
     quirks: bool,
-    /// Page rectangles the last render repainted.
-    last_damage: Vec<crate::damage::Rect>,
+    /// Page rectangles repainted since the frontend last took them.
+    damage: Vec<crate::damage::Rect>,
 }
 
 impl Page {
@@ -100,7 +100,7 @@ impl Page {
             engine: LayoutEngine::default(),
             layout: None,
             quirks: false,
-            last_damage: Vec::new(),
+            damage: Vec::new(),
         }
     }
 
@@ -264,9 +264,9 @@ impl Page {
     /// The box tree of the last render.
     pub fn layout_tree(&self) -> Option<&layout::LayoutBox> { self.layout.as_ref() }
 
-    /// Page rectangles `[x0, y0, x1, y1)` the last render repainted (everything
-    /// after a full paint); frontends may copy just those.
-    pub fn last_damage(&self) -> &[crate::damage::Rect] { &self.last_damage }
+    /// Page rectangles `[x0, y0, x1, y1)` repainted since the last call (the whole
+    /// page after a full paint): what a frontend has to copy to the screen.
+    pub fn take_damage(&mut self) -> Vec<crate::damage::Rect> { std::mem::take(&mut self.damage) }
 
     pub fn size(&self) -> (u32, u32) { (self.width, self.height) }
     pub fn scroll_pos(&self) -> (f32, f32) { (self.scroll_x, self.scroll_y) }
@@ -380,13 +380,13 @@ impl Page {
                 for r in &rects {
                     paint::repaint(&mut self.pixels, page_w, page_h, &layout_root, *r);
                 }
-                self.last_damage = rects;
+                self.damage.extend(rects);
             }
             None => {
                 self.page_w = page_w;
                 self.page_h = page_h;
                 self.pixels = paint::paint(&layout_root, page_w, page_h);
-                self.last_damage = vec![[0, 0, page_w as i32, page_h as i32]];
+                self.damage = vec![[0, 0, page_w as i32, page_h as i32]];
             }
         }
         phases.mark("paint");

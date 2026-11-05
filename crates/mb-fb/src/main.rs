@@ -41,9 +41,11 @@ struct Fb {
     file: File,
     var: VarInfo,
     line: usize,
+    /// The visible screen mapped into memory (null when mmap failed: then a
+    /// back buffer is written with seek+write).
+    map: *mut u8,
+    map_len: usize,
     buf: Vec<u8>,
-    /// The RGBA last presented, to skip rows that did not change.
-    last: Vec<u8>,
 }
 
 impl Fb {
@@ -53,54 +55,52 @@ impl Fb {
         unsafe { libc::ioctl(file.as_raw_fd(), 0x4600 as _, &mut var) };
         assert!(var.bpp == 32, "need a 32 bpp framebuffer, got {}", var.bpp);
         let line = var.xres_v as usize * 4;
-        Fb { file, line, buf: vec![0; line * var.yres as usize], var, last: Vec::new() }
+        let map_len = line * (var.yoff + var.yres) as usize;
+        let map = unsafe {
+            libc::mmap(std::ptr::null_mut(), map_len, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_SHARED, file.as_raw_fd(), 0)
+        };
+        let map = if map == libc::MAP_FAILED { std::ptr::null_mut() } else { map as *mut u8 };
+        let buf = if map.is_null() { vec![0; line * var.yres as usize] } else { Vec::new() };
+        Fb { file, line, map, map_len, buf, var }
     }
 
     fn size(&self) -> (u32, u32) {
         (self.var.xres, self.var.yres)
     }
 
-    /// Copies `w * h` RGBA onto the visible screen in the framebuffer's own pixel
-    /// layout, converting and writing only the rows that changed since last time.
-    fn present(&mut self, rgba: &[u8], w: u32) {
+    /// Copies the `rects` (`[x0, y0, x1, y1)` in page pixels) of a `w`-wide RGBA
+    /// page onto the screen, in the framebuffer's own pixel layout.
+    fn present(&mut self, rgba: &[u8], w: u32, rects: &[[i32; 4]]) {
         let v = &self.var;
         let alpha = if v.t[1] > 0 { 0xffu32 << v.t[0] } else { 0 };
-        let (cols, rows) = (w.min(v.xres) as usize, (v.yres as usize).min(rgba.len() / (w as usize * 4)));
+        let (sx, sy) = (w.min(v.xres) as i32, (v.yres as usize).min(rgba.len() / (w as usize * 4)) as i32);
         let src_line = w as usize * 4;
-        let full = self.last.len() != rgba.len();
-        let (mut first, mut end) = (usize::MAX, 0);
-        let mut dirty = vec![false; rows];
-        for y in 0..rows {
-            let src = &rgba[y * src_line..y * src_line + cols * 4];
-            if !full && src == &self.last[y * src_line..y * src_line + cols * 4] {
+        let screen: &mut [u8] = if self.map.is_null() {
+            &mut self.buf
+        } else {
+            let off = v.yoff as usize * self.line;
+            unsafe { std::slice::from_raw_parts_mut(self.map.add(off), self.map_len - off) }
+        };
+        let (mut first, mut end) = (i32::MAX, 0);
+        for r in rects {
+            let (x0, y0, x1, y1) = (r[0].max(0), r[1].max(0), r[2].min(sx), r[3].min(sy));
+            if x0 >= x1 || y0 >= y1 {
                 continue;
             }
-            dirty[y] = true;
-            first = first.min(y);
-            end = y + 1;
-            let dst = &mut self.buf[y * self.line..y * self.line + cols * 4];
-            for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
-                let p = (s[0] as u32) << v.r[0] | (s[1] as u32) << v.g[0] | (s[2] as u32) << v.b[0] | alpha;
-                d.copy_from_slice(&p.to_le_bytes());
+            first = first.min(y0);
+            end = end.max(y1);
+            for y in y0 as usize..y1 as usize {
+                let src = &rgba[y * src_line + x0 as usize * 4..y * src_line + x1 as usize * 4];
+                let dst = &mut screen[y * self.line + x0 as usize * 4..y * self.line + x1 as usize * 4];
+                for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+                    let p = (s[0] as u32) << v.r[0] | (s[1] as u32) << v.g[0] | (s[2] as u32) << v.b[0] | alpha;
+                    d.copy_from_slice(&p.to_le_bytes());
+                }
             }
         }
-        self.last.clear();
-        self.last.extend_from_slice(rgba);
-        // Write each run of changed rows; a clock at the top and a counter at the
-        // bottom should not rewrite everything in between.
-        let yoff = v.yoff as usize;
-        let mut y = first;
-        while y < end {
-            if !dirty[y] {
-                y += 1;
-                continue;
-            }
-            let start = y;
-            while y < end && dirty[y] {
-                y += 1;
-            }
-            let off = ((yoff + start) * self.line) as u64;
-            let bytes = &self.buf[start * self.line..y * self.line];
+        if self.map.is_null() && first < end {
+            let off = ((v.yoff as usize + first as usize) * self.line) as u64;
+            let bytes = &self.buf[first as usize * self.line..end as usize * self.line];
             let _ = self.file.seek(SeekFrom::Start(off)).and_then(|_| self.file.write_all(bytes));
         }
     }
@@ -226,7 +226,8 @@ fn main() {
                     let s = page.stats();
                     eprintln!("load {path}: {:.0} ms, {} nodes, {} boxes", ms(t), s.node_count, s.box_count);
                     let t = Instant::now();
-                    fb.present(&page.viewport(), w);
+                    page.take_damage();
+                    fb.present(&page.viewport(), w, &[[0, 0, w as i32, h as i32]]);
                     eprintln!("present {:.0} ms", ms(t));
                 }
                 Err(e) => eprintln!("{path}: {e}"),
@@ -251,9 +252,13 @@ fn main() {
         dirty |= ticked;
         if dirty {
             let t = Instant::now();
+            // Unscrolled, only the repainted rectangles changed; otherwise all of it.
+            let full = [[0, 0, w as i32, h as i32]];
+            let damage = page.take_damage();
             match page.viewport_slice() {
-                Some(px) => fb.present(px, w),
-                None => fb.present(&page.viewport(), w),
+                Some(px) if page.scroll_pos() == (0.0, 0.0) => fb.present(px, w, &damage),
+                Some(px) => fb.present(px, w, &full),
+                None => fb.present(&page.viewport(), w, &full),
             }
             if trace {
                 eprintln!("frame: timers+layout+paint {t_tick:.0} ms, present {:.0} ms", ms(t));
