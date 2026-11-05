@@ -59,8 +59,15 @@ fn main() {
     }
     // Timers count from page start; step through them so intervals fire as often as they would live.
     let mut now = 0.0;
+    // MB_FRAMES=dir: also a PNG every 1/30 s of page time (dir/00000.png ...), for videos.
+    let frames = std::env::var("MB_FRAMES").ok();
+    let mut next_frame = 0.0;
+    let mut frame_no = 0;
     while wait > 0.0 && now < wait {
-        let step = page.next_timer(now).unwrap_or(wait).max(1.0).min(wait - now);
+        let mut step = page.next_timer(now).unwrap_or(wait).max(1.0).min(wait - now);
+        if frames.is_some() {
+            step = step.min((next_frame - now).max(1.0));
+        }
         now += step;
         // MB_REALTIME=1: the page clock runs with the wall clock, so answers
         // from the network (fetch, WebSocket) can arrive in between.
@@ -68,6 +75,14 @@ fn main() {
             std::thread::sleep(std::time::Duration::from_secs_f64(step / 1000.0));
         }
         page.tick(now);
+        if let Some(dir) = &frames {
+            while now >= next_frame {
+                let px = page.viewport();
+                image::save_buffer(format!("{dir}/{frame_no:05}.png"), &px, w, h, image::ColorType::Rgba8).expect("write frame");
+                frame_no += 1;
+                next_frame += 1000.0 / 30.0;
+            }
+        }
     }
 
     // MB_CHECK=1: compare the incrementally repainted pixels with a fresh full paint.
