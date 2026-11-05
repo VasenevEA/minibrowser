@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/mb-core", "crates/mb-qjs", "crates/mb-headless", "crates/mb-fb"]
+members = [".", "crates/mb-core", "crates/mb-qjs", "crates/mb-headless", "crates/mb-fb", "crates/mb-blitz"]
 resolver = "2"
 
 [package]

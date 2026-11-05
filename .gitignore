@@ -6,3 +6,4 @@ tests/ref/*.png
 target-a7
 www/doom/doom.js
 www/doom/doom1.wad
+__pycache__/

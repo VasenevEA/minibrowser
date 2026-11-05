@@ -1,0 +1,25 @@
+[package]
+name = "mb-blitz"
+version = "0.8.0"
+edition = "2021"
+description = "MiniBrowser on Blitz: Stylo styles, Taffy layout and Parley text from Blitz, painted on the CPU with tiny-skia."
+license = "MIT"
+
+[dependencies]
+mb-core = { path = "../mb-core" }
+log = "0.4"
+serde_json = "1"
+blitz-dom = { version = "=0.3.0-beta.4", default-features = false, features = ["svg"] }
+blitz-html = "=0.3.0-beta.4"
+blitz-traits = "=0.3.0-beta.4"
+blitz-paint = { version = "=0.3.0-beta.4", default-features = false, features = ["svg"] }
+anyrender = "0.14"
+parley = { version = "0.12", default-features = false, features = ["std"] }
+kurbo = "0.13"
+peniko = "0.6"
+skrifa = "0.44"
+tiny-skia = { version = "0.12", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+mb-qjs = { path = "../mb-qjs" }
+png = "0.17"
