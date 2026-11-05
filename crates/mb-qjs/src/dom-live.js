@@ -441,3 +441,56 @@ function __mb_loaded() {
   document.readyState = 'complete';
   __mb_fire(window, (function () { var e = new Event('load'); e.target = document; return e; })(), false);
 }
+
+// fetch and XMLHttpRequest for web pages: the engine loads http(s) URLs
+// (synchronously, so a slow server holds the page); files as before.
+var __mb_file_fetch = fetch;
+function __mb_web(url) {
+  var r = __mb_d('fetch', String(url));
+  return r && !r.local ? r : null;
+}
+fetch = window.fetch = function (input, init) {
+  var url = typeof input === 'object' && input.url ? input.url : String(input);
+  var r = __mb_web(url);
+  if (!r) return __mb_file_fetch(url, init);
+  return new Promise(function (resolve, reject) {
+    if (!r.ok && r.status === 0) { reject(new TypeError('fetch failed: ' + url)); return; }
+    resolve({
+      ok: r.ok, status: r.status, statusText: r.ok ? 'OK' : '', url: r.url, redirected: false,
+      headers: { get: function () { return null; }, has: function () { return false; } },
+      text: function () { return Promise.resolve(r.text); },
+      json: function () { return new Promise(function (ok) { ok(JSON.parse(r.text)); }); },
+      clone: function () { return this; }
+    });
+  });
+};
+function XMLHttpRequest() {
+  this.readyState = 0; this.status = 0; this.responseText = ''; this.response = ''; this.responseType = '';
+  this._h = {};
+}
+XMLHttpRequest.prototype.open = function (method, url) { this._url = String(url); this.readyState = 1; };
+XMLHttpRequest.prototype.setRequestHeader = function () {};
+XMLHttpRequest.prototype.getResponseHeader = function () { return null; };
+XMLHttpRequest.prototype.getAllResponseHeaders = function () { return ''; };
+XMLHttpRequest.prototype.addEventListener = function (t, fn) { this['on' + t] = fn; };
+XMLHttpRequest.prototype.abort = function () {};
+XMLHttpRequest.prototype.send = function () {
+  var x = this, url = this._url;
+  var done = function (ok, status, text) {
+    x.readyState = 4; x.status = status; x.responseText = text;
+    x.response = x.responseType === 'json' ? (function () { try { return JSON.parse(text); } catch (e) { return null; } })() : text;
+    if (x.onreadystatechange) x.onreadystatechange();
+    if (ok && x.onload) x.onload({ target: x });
+    if (!ok && x.onerror) x.onerror({ target: x });
+    if (x.onloadend) x.onloadend({ target: x });
+  };
+  // Answers after the current script, as a real request would.
+  setTimeout(function () {
+    var r = __mb_web(url);
+    if (r) { done(r.ok, r.status, r.text); return; }
+    var body = typeof __mb_read === 'function' ? __mb_read(url) : null;
+    if (body === null || body === undefined) done(false, 404, ''); else done(true, 200, body);
+  }, 0);
+};
+XMLHttpRequest.UNSENT = 0; XMLHttpRequest.OPENED = 1; XMLHttpRequest.DONE = 4;
+window.XMLHttpRequest = XMLHttpRequest;

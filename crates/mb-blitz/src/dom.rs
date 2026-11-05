@@ -108,6 +108,20 @@ impl Dom for BlitzDom {
                 let s = node.final_layout().size;
                 json!({ "x": p.x, "y": p.y, "w": s.width, "h": s.height })
             }
+            "fetch" => {
+                // Web pages' fetch/XHR (files keep dom.js's reader): the URL
+                // against the page's, synchronously.
+                let url = text(a.first());
+                let full = doc.base_url().join(url).map(|u| u.to_string()).unwrap_or_else(|_| url.to_string());
+                drop(doc);
+                if !(full.starts_with("http://") || full.starts_with("https://")) {
+                    return json!({ "local": true });
+                }
+                match crate::net::http_get(&full) {
+                    Some(body) => json!({ "ok": true, "status": 200, "url": full, "text": String::from_utf8_lossy(&body) }),
+                    None => json!({ "ok": false, "status": 0, "url": full, "text": "" }),
+                }
+            }
             "computed" => {
                 let Some(n) = n else { return json!("") };
                 // Layout and styles of what scripts changed so far.

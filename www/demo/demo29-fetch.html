@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  body { margin: 0; padding: 18px; background: #0d1117; color: #e6edf3; font: 15px sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 14px; color: #58a6ff; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 14px; margin-bottom: 10px; }
+  .row { display: flex; gap: 24px; }
+  .n { font-size: 30px; font-weight: bold; color: #f0b72f; }
+  .k { color: #8b949e; font-size: 13px; }
+  #err { color: #f85149; }
+</style></head>
+<body>
+<h1>fetch() по https: погода в Москве (open-meteo)</h1>
+<div class="card"><b id="name">загрузка…</b><div class="k" id="desc"></div></div>
+<div class="card row">
+  <div><div class="n" id="t">–</div><div class="k">°C</div></div>
+  <div><div class="n" id="w">–</div><div class="k">ветер, км/ч</div></div>
+  <div><div class="n" id="h">–</div><div class="k">влажность, %</div></div>
+</div>
+<div class="card"><div class="k">время измерения</div><div id="at"></div><div id="err"></div></div>
+<script>
+  const $ = id => document.getElementById(id);
+  fetch('https://api.open-meteo.com/v1/forecast?latitude=55.75&longitude=37.62&current=temperature_2m,wind_speed_10m,relative_humidity_2m&timezone=Europe%2FMoscow')
+    .then(r => r.json())
+    .then(d => {
+      const c = d.current;
+      $('name').textContent = 'Москва, ' + d.latitude.toFixed(2) + ', ' + d.longitude.toFixed(2);
+      $('desc').textContent = 'данные open-meteo.com, ' + d.timezone;
+      $('t').textContent = c.temperature_2m;
+      $('w').textContent = c.wind_speed_10m;
+      $('h').textContent = c.relative_humidity_2m;
+      $('at').textContent = c.time.replace('T', ' ') + ' МСК';
+    })
+    .catch(e => { $('err').textContent = 'ошибка: ' + e; });
+</script>
+</body></html>
