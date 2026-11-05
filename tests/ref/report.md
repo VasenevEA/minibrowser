@@ -1,25 +1,25 @@
-# MiniBrowser vs Chrome (800x480, tolerance 24)
+# MiniBrowser vs Chrome (800x480, ink pixels matching within 2px, tolerance 24)
 
 | page | match |
 |---|---|
-| demo1 | 90.16% |
-| demo10-css | 81.97% |
-| demo11-canvas | 98.80% |
-| demo12-images | 92.83% |
-| demo13-grid | 92.66% |
-| demo14-position | 93.73% |
-| demo15-canvas2d | 94.13% |
-| demo16-landing | 73.52% |
-| demo17-dashboard | 92.38% |
-| demo18-article | 72.52% |
-| demo19-form | 78.36% |
-| demo2 | 82.65% |
-| demo20-responsive | 63.78% |
-| demo3 | 96.11% |
-| demo4-js | 97.85% |
-| demo5-js-clock | 96.74% |
-| demo6-js-counter | 97.23% |
-| demo7-js-todo | 86.28% |
-| demo8-js-hmi | 93.66% |
-| demo9-interactive | 86.92% |
-| **average** | **88.11%** |
+| demo1 | 37.82% |
+| demo10-css | 52.30% |
+| demo11-canvas | 51.60% |
+| demo12-images | 8.57% |
+| demo13-grid | 70.43% |
+| demo14-position | 29.33% |
+| demo15-canvas2d | 35.41% |
+| demo16-landing | 64.82% |
+| demo17-dashboard | 31.34% |
+| demo18-article | 74.22% |
+| demo19-form | 16.94% |
+| demo2 | 76.24% |
+| demo20-responsive | 31.62% |
+| demo3 | 57.40% |
+| demo4-js | 34.92% |
+| demo5-js-clock | 55.33% |
+| demo6-js-counter | 68.68% |
+| demo7-js-todo | 81.86% |
+| demo8-js-hmi | 92.66% |
+| demo9-interactive | 42.17% |
+| **average** | **50.68%** |

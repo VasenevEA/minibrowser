@@ -1,6 +1,6 @@
 //! mb-headless — renders a page to a PNG, the way a panel would show it.
 //!
-//!   mb-headless page.html out.png [--size 800x480] [--full] [--click X,Y]... [--wait MS]
+//!   mb-headless page.html out.png [--size 800x480] [--full] [--dump] [--click X,Y]... [--wait MS]
 //!
 //! Clicks run in order after the page loads; `--wait` advances the page clock
 //! (timers fire) before the screenshot. `--full` saves the whole page, not the viewport.
@@ -16,7 +16,7 @@ fn main() {
         eprintln!("usage: mb-headless page.html out.png [--size WxH] [--full] [--click X,Y]... [--wait MS]");
         std::process::exit(2);
     }
-    let (mut w, mut h, mut full, mut wait) = (800u32, 480u32, false, 0f64);
+    let (mut w, mut h, mut full, mut wait, mut dump) = (800u32, 480u32, false, 0f64, false);
     let mut clicks = Vec::new();
     let mut i = 2;
     while i < args.len() {
@@ -37,6 +37,7 @@ fn main() {
                 i += 1;
             }
             "--full" => full = true,
+            "--dump" => dump = true,
             other => panic!("unknown argument {other}"),
         }
         i += 1;
@@ -44,6 +45,7 @@ fn main() {
 
     let html = std::fs::read_to_string(&args[0]).expect("read page");
     let mut page = Page::new(Box::new(QuickJs::new()), w, h);
+    page.set_layout_engine(mb_core::LayoutEngine::from_env());
     let t = Instant::now();
     page.load(&html);
     let s = page.stats();
@@ -62,6 +64,9 @@ fn main() {
         page.tick(now);
     }
 
+    if dump {
+        print!("{}", page.dump_layout());
+    }
     let (rgba, ow, oh) = if full { page.full_page() } else { (page.viewport(), w, h) };
     image::save_buffer(&args[1], &rgba, ow, oh, image::ColorType::Rgba8).expect("write png");
 }

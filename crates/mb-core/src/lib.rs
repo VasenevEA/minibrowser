@@ -10,11 +10,12 @@ pub mod font;
 pub mod html_parser;
 pub mod js_engine;
 pub mod layout;
+pub mod layout_taffy;
 pub mod page;
 pub mod paint;
 
 pub use js_engine::JsHost;
-pub use page::{Page, Stats};
+pub use page::{LayoutEngine, Page, Stats};
 
 /// A host for pages without scripts: everything runs, nothing happens.
 pub struct NoJs;

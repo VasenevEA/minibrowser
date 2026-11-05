@@ -23,6 +23,26 @@ pub struct HitRegion {
     pub is_input: bool,
 }
 
+/// Which layout code positions the boxes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LayoutEngine {
+    /// The original hand-written block/inline/flex/grid layout.
+    #[default]
+    Builtin,
+    /// Taffy for block, flex and grid; the built-in code for inline content.
+    Taffy,
+}
+
+impl LayoutEngine {
+    /// From the `MB_LAYOUT` environment variable ("taffy" or "builtin").
+    pub fn from_env() -> Self {
+        match std::env::var("MB_LAYOUT").as_deref() {
+            Ok("taffy") => LayoutEngine::Taffy,
+            _ => LayoutEngine::Builtin,
+        }
+    }
+}
+
 /// Numbers about the last render, for frontends to show or log.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Stats {
@@ -50,6 +70,8 @@ pub struct Page {
     stats: Stats,
     /// The page clock as of the last `tick`; timers that scripts set count from it.
     now_ms: f64,
+    engine: LayoutEngine,
+    layout: Option<layout::LayoutBox>,
 }
 
 impl Page {
@@ -70,6 +92,8 @@ impl Page {
             pending_images: Vec::new(),
             stats: Stats::default(),
             now_ms: 0.0,
+            engine: LayoutEngine::default(),
+            layout: None,
         }
     }
 
@@ -96,6 +120,11 @@ impl Page {
         js_engine::execute_scripts(&mut doc, self.js.as_mut(), self.now_ms);
         self.document = Some(doc);
         self.render();
+    }
+
+    /// Picks the layout code; takes effect on the next render.
+    pub fn set_layout_engine(&mut self, engine: LayoutEngine) {
+        self.engine = engine;
     }
 
     /// Changes the viewport size and repaints.
@@ -217,6 +246,26 @@ impl Page {
     pub fn document(&self) -> Option<&dom::Document> { self.document.as_ref() }
     pub fn hit_regions(&self) -> &[HitRegion] { &self.hit_regions }
 
+    /// The box tree of the last render, one line per box (for debugging layout).
+    pub fn dump_layout(&self) -> String {
+        fn walk(b: &layout::LayoutBox, depth: usize, out: &mut String) {
+            let what = match &b.content {
+                layout::BoxContent::Text(t) => format!("text {:?}", t.chars().take(24).collect::<String>()),
+                c => format!("{:?}", c).split_whitespace().next().unwrap_or("").to_string(),
+            };
+            out.push_str(&format!("{:indent$}{} x={:.0} y={:.0} w={:.0} h={:.0} m=({:.0} {:.0} {:.0} {:.0})\n",
+                "", what, b.x, b.y, b.width, b.height, b.margin.top, b.margin.right, b.margin.bottom, b.margin.left, indent = depth * 2));
+            for c in &b.children {
+                walk(c, depth + 1, out);
+            }
+        }
+        let mut out = String::new();
+        if let Some(root) = &self.layout {
+            walk(root, 0, &mut out);
+        }
+        out
+    }
+
     /// Image URLs the last render needed but has no data for; the frontend fetches
     /// them and hands them over with `add_image`.
     pub fn pending_images(&self) -> &[String] { &self.pending_images }
@@ -264,7 +313,10 @@ impl Page {
         };
         let layout_input = convert_styled(&styled.root, &mut cx);
         // Lay out against the full content height, not the viewport.
-        let layout_root = layout::layout_tree(&layout_input, self.width as f32, 100000.0);
+        let layout_root = match self.engine {
+            LayoutEngine::Builtin => layout::layout_tree(&layout_input, self.width as f32, 100000.0),
+            LayoutEngine::Taffy => crate::layout_taffy::layout_tree(&layout_input, self.width as f32, self.height as f32),
+        };
 
         let total_height = layout_root.margin_box_height().max(self.height as f32);
         let total_width = layout_root.margin_box_width().max(self.width as f32);
@@ -276,9 +328,10 @@ impl Page {
         self.page_w = (total_width as u32).max(self.width).min(4000);
         self.page_h = (total_height as u32).min(8000).max(self.height);
         self.pixels = paint::paint(&layout_root, self.page_w, self.page_h);
+        self.layout = Some(layout_root);
         self.stats = Stats {
             node_count: count_nodes(&document.root),
-            box_count: layout::count_boxes(&layout_root),
+            box_count: layout::count_boxes(self.layout.as_ref().unwrap()),
             content_width: total_width,
             content_height: total_height,
         };
@@ -320,6 +373,18 @@ impl Cx<'_> {
             Err(_) => (Vec::new(), 0, 0),
         }
     }
+}
+
+/// The children that get boxes. Whitespace-only text next to block-level
+/// siblings makes no line box in CSS (it is collapsible white space between
+/// blocks), so it is dropped; among inline siblings it is a space and stays.
+fn laid_out_children(sn: &css::StyledNode) -> impl Iterator<Item = &css::StyledNode> {
+    let has_blocks = sn.children.iter().any(|c| {
+        matches!(c.node_type, dom::NodeType::Element(_)) && !matches!(c.display(), "inline" | "none")
+    });
+    sn.children.iter().filter(move |c| {
+        !(has_blocks && matches!(&c.node_type, dom::NodeType::Text(t) if t.trim().is_empty()))
+    })
 }
 
 /// (id, value) of every `<input>`/`<textarea>` that has an id.
@@ -427,7 +492,7 @@ fn collect_hit_regions(
     }
 
     // Recurse into children that are visible
-    let visible_styled: Vec<&css::StyledNode> = styled.children.iter()
+    let visible_styled: Vec<&css::StyledNode> = laid_out_children(styled)
         .filter(|c| {
             c.get("display").map(|v| {
                 if let css::CSSValue::Keyword(s) = v { s != "none" } else { true }
@@ -740,8 +805,65 @@ fn convert_styled(sn: &css::StyledNode, cx: &mut Cx) -> layout::StyledNode {
         grid_template_columns: parse_grid_template_columns(sn),
         grid_gap: get_length("grid-gap", get_length("gap", 0.0)),
         border_box: is_border_box,
+        flex: {
+            let mut f = layout::FlexProps::default();
+            f.direction = match get_str("flex-direction").as_str() {
+                "column" => layout::FlexDirection::Column,
+                "column-reverse" => layout::FlexDirection::ColumnReverse,
+                "row-reverse" => layout::FlexDirection::RowReverse,
+                _ => layout::FlexDirection::Row,
+            };
+            f.justify = match get_str("justify-content").as_str() {
+                "flex-end" | "end" | "right" => layout::JustifyContent::FlexEnd,
+                "center" => layout::JustifyContent::Center,
+                "space-between" => layout::JustifyContent::SpaceBetween,
+                "space-around" => layout::JustifyContent::SpaceAround,
+                "space-evenly" => layout::JustifyContent::SpaceEvenly,
+                _ => layout::JustifyContent::FlexStart,
+            };
+            // `flex: <grow> [<shrink>] [<basis>]` or the keywords; longhands win.
+            match sn.get("flex") {
+                Some(CSSValue::Number(n)) => { f.grow = *n; f.basis = layout::Dimension::Percent(0.0); }
+                Some(CSSValue::Keyword(k)) => {
+                    let parts: Vec<&str> = k.split_whitespace().collect();
+                    match parts.as_slice() {
+                        ["none"] => { f.grow = 0.0; f.shrink = 0.0; }
+                        ["auto"] => { f.grow = 1.0; }
+                        [g, rest @ ..] if g.parse::<f32>().is_ok() => {
+                            f.grow = g.parse().unwrap_or(0.0);
+                            f.basis = layout::Dimension::Percent(0.0);
+                            for p in rest {
+                                if let Ok(v) = p.parse::<f32>() { f.shrink = v; }
+                                else if let Some(v) = p.strip_suffix("px").and_then(|v| v.parse().ok()) { f.basis = layout::Dimension::Px(v); }
+                                else if let Some(v) = p.strip_suffix('%').and_then(|v| v.parse().ok()) { f.basis = layout::Dimension::Percent(v); }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Some(CSSValue::Length(n, css::Unit::Percent)) => { f.grow = 1.0; f.basis = layout::Dimension::Percent(*n); }
+                Some(CSSValue::Length(n, _)) => { f.grow = 1.0; f.basis = layout::Dimension::Px(*n); }
+                _ => {}
+            }
+            let num = |p: &str| match sn.get(p) {
+                Some(CSSValue::Number(n)) | Some(CSSValue::Length(n, _)) => Some(*n),
+                Some(CSSValue::Keyword(k)) => k.parse().ok(),
+                _ => None,
+            };
+            if let Some(g) = num("flex-grow") { f.grow = g; }
+            if let Some(s) = num("flex-shrink") { f.shrink = s; }
+            if sn.get("flex-basis").is_some() { f.basis = get_dim("flex-basis"); }
+            f.align_self = match get_str("align-self").as_str() {
+                "center" => Some(layout::AlignItems::Center),
+                "flex-start" | "start" => Some(layout::AlignItems::FlexStart),
+                "flex-end" | "end" => Some(layout::AlignItems::FlexEnd),
+                "stretch" => Some(layout::AlignItems::Stretch),
+                _ => None,
+            };
+            f
+        },
         content,
-        children: sn.children.iter().map(|c| convert_styled(c, cx)).collect(),
+        children: laid_out_children(sn).map(|c| convert_styled(c, cx)).collect(),
     }
 }
 

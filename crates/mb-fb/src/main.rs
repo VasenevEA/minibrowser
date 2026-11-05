@@ -178,6 +178,7 @@ fn main() {
     let clock = Instant::now();
     let now_ms = move || clock.elapsed().as_secs_f64() * 1000.0;
     let mut page = Page::new(Box::new(QuickJs::new()), w, h);
+    page.set_layout_engine(mb_core::LayoutEngine::from_env());
     let mut loaded = None;
     loop {
         // (Re)load when the file appears or changes.

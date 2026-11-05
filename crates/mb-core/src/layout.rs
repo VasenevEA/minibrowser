@@ -185,8 +185,51 @@ pub struct StyledNode {
     pub grid_gap: f32,
     /// `box-sizing: border-box`: percentage sizes include padding and border.
     pub border_box: bool,
+    /// Flex container and item properties (used by the Taffy layout only).
+    pub flex: FlexProps,
     pub content: NodeContent,
     pub children: Vec<StyledNode>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FlexProps {
+    pub direction: FlexDirection,
+    pub justify: JustifyContent,
+    pub grow: f32,
+    pub shrink: f32,
+    pub basis: Dimension,
+    pub align_self: Option<AlignItems>,
+}
+
+impl Default for FlexProps {
+    fn default() -> Self {
+        FlexProps {
+            direction: FlexDirection::Row,
+            justify: JustifyContent::FlexStart,
+            grow: 0.0,
+            shrink: 1.0,
+            basis: Dimension::Auto,
+            align_self: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FlexDirection {
+    Row,
+    RowReverse,
+    Column,
+    ColumnReverse,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum JustifyContent {
+    FlexStart,
+    FlexEnd,
+    Center,
+    SpaceBetween,
+    SpaceAround,
+    SpaceEvenly,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -240,7 +283,7 @@ pub enum GridTrack {
     Fr(f32),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Dimension {
     Auto,
     Px(f32),
@@ -302,6 +345,7 @@ impl StyledNode {
             grid_template_columns: Vec::new(),
             grid_gap: 0.0,
             border_box: false,
+            flex: FlexProps::default(),
             content: NodeContent::Text(s.to_string()),
             children: Vec::new(),
         }
@@ -337,6 +381,7 @@ impl StyledNode {
             grid_template_columns: Vec::new(),
             grid_gap: 0.0,
             border_box: false,
+            flex: FlexProps::default(),
             content: NodeContent::Element,
             children,
         }
@@ -384,7 +429,7 @@ pub fn count_boxes(layout: &LayoutBox) -> usize {
 }
 
 /// Recursively convert the styled tree into an un-laid-out `LayoutBox` tree.
-fn build_layout_box(node: &StyledNode) -> LayoutBox {
+pub(crate) fn build_layout_box(node: &StyledNode) -> LayoutBox {
     if node.display == Display::None {
         // Hidden nodes produce a zero-sized anonymous box with no children.
         return LayoutBox {
@@ -486,7 +531,7 @@ fn build_layout_box(node: &StyledNode) -> LayoutBox {
 impl LayoutBox {
     /// Perform layout relative to containing block at (`cx`, `cy`) with the
     /// given available width and height.
-    fn layout(
+    pub(crate) fn layout(
         &mut self,
         cx: f32,
         cy: f32,
@@ -1240,14 +1285,12 @@ impl LayoutBox {
     // -----------------------------------------------------------------------
     // Text layout with word wrapping
     // -----------------------------------------------------------------------
-    /// Compute line height: use explicit line_height if set (>0), else font_size * factor.
-    /// The 0.76 factor approximates the rendered glyph height from DejaVu Sans,
-    /// providing consistent text layout matching the paint module's line spacing.
-    fn computed_line_height(&self) -> f32 {
+    /// The line box height: an explicit `line-height`, else the font's `normal`.
+    pub(crate) fn computed_line_height(&self) -> f32 {
         if self.line_height > 0.0 {
             self.line_height
         } else {
-            self.font_size * 0.76
+            crate::font::FontduFont::shared().line_metrics(self.font_size).2
         }
     }
 

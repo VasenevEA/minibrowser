@@ -33,6 +33,22 @@ impl FontduFont {
         FontduFont { sans, mono: std::sync::OnceLock::new() }
     }
 
+    /// Vertical metrics at `font_size`: (ascent, descent, normal line height), as
+    /// CSS `line-height: normal` uses them (DejaVu Sans: 0.928, 0.236, 1.164 em).
+    pub fn line_metrics(&self, font_size: f32) -> (f32, f32, f32) {
+        match self.sans.horizontal_line_metrics(font_size) {
+            Some(m) => (m.ascent, -m.descent, m.new_line_size),
+            None => (font_size * 0.928, font_size * 0.236, font_size * 1.164),
+        }
+    }
+
+    /// Where the baseline of a line box of height `line_height` sits below its top:
+    /// the leading is split evenly above and below the glyphs (CSS 2.1 §10.8.1).
+    pub fn baseline_in_line(&self, font_size: f32, line_height: f32) -> f32 {
+        let (ascent, descent, _) = self.line_metrics(font_size);
+        (line_height - (ascent + descent)) / 2.0 + ascent
+    }
+
     /// The process-wide instance: parsing both TTFs costs tens of ms on a Cortex-A7,
     /// so layout and paint share one instead of parsing per call.
     pub fn shared() -> &'static FontduFont {

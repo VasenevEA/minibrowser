@@ -148,11 +148,14 @@ fn paint_text(pixmap: &mut Pixmap, layout_box: &LayoutBox, font: &FontduFont) {
     let max_width = layout_box.width;
     let font_size = layout_box.font_size;
 
-    let line_h = if layout_box.line_height > 0.0 {
-        layout_box.line_height as i32
+    let line_h_f = if layout_box.line_height > 0.0 {
+        layout_box.line_height
     } else {
-        (font_size * 0.76) as i32
+        font.line_metrics(font_size).2
     };
+    // draw_text puts the baseline 0.8em below the y it is given.
+    let baseline = font.baseline_in_line(font_size, line_h_f);
+    let glyph_dy = (baseline - font_size * 0.8).round() as i32;
 
     let w = pixmap.width();
     let data = pixmap.data_mut();
@@ -196,7 +199,7 @@ fn paint_text(pixmap: &mut Pixmap, layout_box: &LayoutBox, font: &FontduFont) {
     }
 
     // Render each line
-    let mut draw_y = cy as i32;
+    let mut line_top = cy;
     for line_words in &lines {
         let line_text = line_words.join(" ");
         let line_pixel_width = font.measure_text(&line_text, font_size).0;
@@ -213,22 +216,24 @@ fn paint_text(pixmap: &mut Pixmap, layout_box: &LayoutBox, font: &FontduFont) {
             crate::layout::TextAlign::Left => cx as i32,
         };
 
+        let draw_y = line_top.round() as i32 + glyph_dy;
+        let baseline_y = (line_top + baseline).round() as i32;
         font.draw_text(data, w, draw_x, draw_y, &line_text, font_size, rgba);
 
         // Draw text-decoration lines
         match layout_box.text_decoration {
             TextDecoration::Underline => {
-                let line_y = draw_y + (font_size * 0.76) as i32 + 2;
+                let line_y = baseline_y + (font_size * 0.1).max(1.0) as i32;
                 draw_horizontal_line(data, w, draw_x, line_y, line_pixel_width as i32, rgba);
             }
             TextDecoration::LineThrough => {
-                let line_y = draw_y + (font_size * 0.76 / 2.0) as i32;
+                let line_y = baseline_y - (font_size * 0.3) as i32;
                 draw_horizontal_line(data, w, draw_x, line_y, line_pixel_width as i32, rgba);
             }
             TextDecoration::None => {}
         }
 
-        draw_y += line_h;
+        line_top += line_h_f;
     }
 }
 
@@ -322,7 +327,7 @@ fn paint_image(pixmap: &mut Pixmap, layout_box: &LayoutBox, font: &FontduFont) {
         let label = if alt.is_empty() { "IMG" } else { alt };
         let font_size = 14.0_f32;
         let text_w = font.measure_text(label, font_size).0;
-        let text_h = font_size * 0.76;
+        let text_h = font.line_metrics(font_size).2;
         let tx = (cx + (box_w - text_w) / 2.0).max(cx) as i32;
         let ty = (cy + (box_h - text_h) / 2.0).max(cy) as i32;
 
