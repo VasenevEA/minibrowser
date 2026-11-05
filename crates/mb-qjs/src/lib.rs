@@ -82,12 +82,22 @@ fn resolve(base: &Path, url: &str) -> Option<PathBuf> {
     allowed.iter().flatten().any(|root| real.starts_with(root)).then_some(real)
 }
 
+/// Pins down the closure's lifetimes: its value lives in the context it is given.
+fn bytes_fn<F>(f: F) -> F
+where
+    F: for<'js> Fn(rquickjs::Ctx<'js>, String) -> rquickjs::Result<rquickjs::Value<'js>>,
+{
+    f
+}
+
 fn fresh(base: Option<PathBuf>, blobs: Blobs) -> (Runtime, Context) {
     let rt = Runtime::new().expect("QuickJS runtime");
     // A page must not take the panel down with it.
-    rt.set_memory_limit(32 << 20);
+    // Big enough for a game compiled to JS (Doom: ~40 MB with its heap).
+    rt.set_memory_limit(64 << 20);
     rt.set_max_stack_size(512 << 10);
     let ctx = Context::full(&rt).expect("QuickJS context");
+    let base_bytes = base.clone();
     ctx.with(|ctx| {
         let read = Function::new(ctx.clone(), move |url: String| -> Option<String> {
             let path = resolve(base.as_deref()?, &url)?;
@@ -95,6 +105,16 @@ fn fresh(base: Option<PathBuf>, blobs: Blobs) -> (Runtime, Context) {
         });
         if let Ok(read) = read {
             let _ = ctx.globals().set("__mb_read", read);
+        }
+        let bytes_base = base_bytes;
+        let read_bytes = Function::new(ctx.clone(), bytes_fn(move |ctx, url| {
+            match bytes_base.as_deref().and_then(|b| resolve(b, &url)).and_then(|p| std::fs::read(p).ok()) {
+                Some(data) => Ok(rquickjs::ArrayBuffer::new(ctx, data)?.into_value()),
+                None => Ok(rquickjs::Value::new_null(ctx)),
+            }
+        }));
+        if let Ok(f) = read_bytes {
+            let _ = ctx.globals().set("__mb_read_bytes", f);
         }
         // __mb_blob(arrayBuffer) → a handle: bytes go to the engine without JSON.
         let blob = Function::new(ctx.clone(), move |buf: rquickjs::ArrayBuffer| -> u32 {

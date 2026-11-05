@@ -4,3 +4,5 @@ pkg/
 !tests/pixel_results/**
 tests/ref/*.png
 target-a7
+www/doom/doom.js
+www/doom/doom1.wad

@@ -257,17 +257,27 @@ function __mb_next(now) {
 // Resolves on the same turn; there is no network.
 function fetch(url) {
   return new Promise(function (resolve, reject) {
-    var body = typeof __mb_read === 'function' ? __mb_read(String(url)) : null;
-    if (body === null || body === undefined) {
+    url = String(url);
+    var body = typeof __mb_read === 'function' ? __mb_read(url) : null;
+    // Binary files are not text: they are only readable as bytes.
+    var bytes = body === null || body === undefined ? (typeof __mb_read_bytes === 'function' ? __mb_read_bytes(url) : null) : null;
+    if ((body === null || body === undefined) && !bytes) {
       reject(new TypeError('fetch failed: ' + url));
       return;
     }
     resolve({
-      ok: true, status: 200, url: String(url),
-      text: function () { return Promise.resolve(body); },
-      json: function () { return new Promise(function (ok) { ok(JSON.parse(body)); }); }
+      ok: true, status: 200, url: url,
+      text: function () { return Promise.resolve(body || ''); },
+      json: function () { return new Promise(function (ok) { ok(JSON.parse(body)); }); },
+      arrayBuffer: function () { return Promise.resolve(bytes || __mb_read_bytes(url)); }
     });
   });
+}
+// <script src>: the file's code runs at global scope, like an inline script.
+function __mb_include(src) {
+  var code = typeof __mb_read === 'function' ? __mb_read(String(src)) : null;
+  if (code === null || code === undefined) throw new Error('script not found: ' + src);
+  (0, eval)(code);
 }
 window.fetch = fetch;
 

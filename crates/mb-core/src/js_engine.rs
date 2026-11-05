@@ -45,6 +45,11 @@ pub fn extract_scripts(doc: &Document) -> Vec<String> {
 fn collect_scripts(node: &Node, out: &mut Vec<String>) {
     if let NodeType::Element(ref data) = node.node_type {
         if data.tag_name == "script" {
+            // An external script: the host loads and runs the file.
+            if let Some(src) = data.attributes.get("src").filter(|s| !s.trim().is_empty()) {
+                out.push(format!("__mb_include({})", serde_json::Value::String(src.trim().to_string())));
+                return;
+            }
             let text = node.inner_text();
             let trimmed = text.trim();
             if !trimmed.is_empty() {
