@@ -430,3 +430,16 @@ fn parse_line(s: &str) -> Line<GridPlacement<String>> {
         None => Line { start: one(s), end: GridPlacement::Auto },
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repeat_expands() {
+        let t = parse_tracks("repeat(3, 1fr)");
+        assert_eq!(t.len(), 3, "{t:?}");
+        assert_eq!(parse_tracks("200px 1fr minmax(100px, 1fr)").len(), 3);
+        assert_eq!(parse_tracks("repeat(auto-fill, 120px)").len(), 1);
+    }
+}

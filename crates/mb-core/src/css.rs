@@ -339,15 +339,21 @@ fn skip_to_semicolon(parser: &mut Parser<'_, '_>) {
 fn collect_value(parser: &mut Parser<'_, '_>) -> String {
     let start = parser.position();
     loop {
-        if parser.is_exhausted() {
-            break;
-        }
         let state = parser.state();
         match parser.next_including_whitespace() {
             Ok(&Token::Semicolon) => {
                 // Put the semicolon back so the caller can consume it.
                 parser.reset(&state);
                 break;
+            }
+            // Step over `f(...)`, `(...)`, `[...]` whole: `is_exhausted` and
+            // `reset` inside one would lose the block and cut the value short
+            // (`repeat(3, 1fr)` came out as `repeat(`).
+            Ok(&Token::Function(_)) | Ok(&Token::ParenthesisBlock) | Ok(&Token::SquareBracketBlock) => {
+                let _ = parser.parse_nested_block(|p| {
+                    while p.next_including_whitespace().is_ok() {}
+                    Ok::<(), cssparser::ParseError<'_, ()>>(())
+                });
             }
             Ok(_) => {}
             Err(_) => break,

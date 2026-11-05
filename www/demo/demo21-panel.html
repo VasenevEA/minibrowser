@@ -1,0 +1,118 @@
+<html>
+<head>
+<style>
+body { margin: 0; background: #0b0f17; color: #e6ebf2; font-size: 14px; }
+.top { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: #121926; border-bottom: 2px solid #1f2a3d; }
+.title { font-size: 18px; font-weight: bold; color: #38bdf8; }
+.muted { color: #7c899e; font-size: 12px; }
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 10px 16px 0 16px; }
+.card { background: #131a26; border: 1px solid #222c3e; border-radius: 8px; padding: 10px 12px; }
+.card .value { font-size: 30px; font-weight: bold; margin-top: 2px; }
+.row { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+.btn { background: #1e293b; color: #e6ebf2; border: 1px solid #334155; border-radius: 6px; padding: 6px 14px; font-size: 16px; font-weight: bold; }
+.bars { display: flex; align-items: flex-end; gap: 3px; height: 70px; margin-top: 8px; }
+.bar { flex: 1; background: #38bdf8; border-radius: 2px; }
+.bottom { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; padding: 10px 16px; }
+.alarm { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #1f2a3d; font-size: 12px; }
+.ok { color: #34d399; }
+.warn { color: #fbbf24; }
+.bad { color: #f87171; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="title">Котельная №1 · T113</div>
+    <div><span id="state" class="ok">● В работе</span>  <span id="clock" class="muted">--:--:--</span></div>
+  </div>
+
+  <div class="grid">
+    <div class="card" style="border-left: 4px solid #f97316;">
+      <div class="muted">Подача, °C</div>
+      <div id="t1" class="value" style="color:#fb923c;">72.5</div>
+      <div class="row"><span class="muted">уставка <b id="sp">75</b></span>
+        <span><button id="dn" class="btn">−</button> <button id="up" class="btn">+</button></span></div>
+    </div>
+    <div class="card" style="border-left: 4px solid #38bdf8;">
+      <div class="muted">Обратка, °C</div>
+      <div id="t2" class="value" style="color:#38bdf8;">58.2</div>
+      <div class="bars" id="trend"></div>
+    </div>
+    <div class="card" style="border-left: 4px solid #34d399;">
+      <div class="muted">Насос</div>
+      <div id="pump" class="value ok">РАБОТА</div>
+      <div class="row"><span class="muted">P = <b id="p">3.2</b> бар</span>
+        <button id="pumpbtn" class="btn">СТОП</button></div>
+    </div>
+  </div>
+
+  <div class="bottom">
+    <div class="card">
+      <div class="muted" style="margin-bottom:4px;">Журнал</div>
+      <div id="log"></div>
+    </div>
+    <div class="card">
+      <div class="muted">Тики таймера</div>
+      <div id="ticks" class="value" style="color:#a78bfa;">0</div>
+      <div class="muted">JS: QuickJS, setInterval 1 с</div>
+    </div>
+  </div>
+
+  <script>
+    var sp = 75, t1 = 72.5, t2 = 58.2, p = 3.2, pumpOn = true, ticks = 0;
+    var hist = [], log = [];
+    function pad(n) { return n < 10 ? '0' + n : '' + n; }
+    function now() { var d = new Date(); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
+    function note(level, text) {
+      log.unshift({ t: now(), level: level, text: text });
+      if (log.length > 5) log.pop();
+    }
+    function render() {
+      document.getElementById('clock').textContent = now();
+      document.getElementById('t1').textContent = t1.toFixed(1);
+      document.getElementById('t2').textContent = t2.toFixed(1);
+      document.getElementById('sp').textContent = sp;
+      document.getElementById('p').textContent = p.toFixed(1);
+      document.getElementById('ticks').textContent = ticks;
+      document.getElementById('pump').textContent = pumpOn ? 'РАБОТА' : 'СТОП';
+      document.getElementById('pump').style.color = pumpOn ? '#34d399' : '#f87171';
+      document.getElementById('pumpbtn').textContent = pumpOn ? 'СТОП' : 'ПУСК';
+      var hot = t1 > sp + 3;
+      document.getElementById('state').textContent = !pumpOn ? '● Насос стоит' : hot ? '● Перегрев' : '● В работе';
+      document.getElementById('state').style.color = !pumpOn ? '#f87171' : hot ? '#fbbf24' : '#34d399';
+      var bars = '';
+      for (var i = 0; i < hist.length; i++) {
+        var h = Math.max(4, Math.round((hist[i] - 50) * 3));
+        bars += '<div class="bar" style="height:' + h + 'px;"></div>';
+      }
+      document.getElementById('trend').innerHTML = bars;
+      var html = '';
+      for (var j = 0; j < log.length; j++) {
+        html += '<div class="alarm"><span class="' + log[j].level + '">' + log[j].text + '</span><span class="muted">' + log[j].t + '</span></div>';
+      }
+      document.getElementById('log').innerHTML = html;
+    }
+    function step() {
+      ticks++;
+      var target = pumpOn ? sp : 40;
+      t1 += (target - t1) * 0.08 + (Math.random() - 0.5) * 0.4;
+      t2 = t1 - 14 + (Math.random() - 0.5) * 0.6;
+      p = pumpOn ? 3.2 + (Math.random() - 0.5) * 0.2 : 0.4;
+      hist.push(t2);
+      if (hist.length > 24) hist.shift();
+      if (t1 > sp + 3 && ticks % 5 == 0) note('warn', 'Подача выше уставки');
+      render();
+    }
+    document.getElementById('up').onclick = function () { sp += 1; note('ok', 'Уставка ' + sp + ' °C'); render(); };
+    document.getElementById('dn').onclick = function () { sp -= 1; note('ok', 'Уставка ' + sp + ' °C'); render(); };
+    document.getElementById('pumpbtn').onclick = function () {
+      pumpOn = !pumpOn;
+      note(pumpOn ? 'ok' : 'bad', pumpOn ? 'Насос запущен' : 'Насос остановлен');
+      render();
+    };
+    for (var k = 0; k < 24; k++) hist.push(58 + Math.sin(k / 3) * 2);
+    note('ok', 'Система запущена');
+    render();
+    setInterval(step, 1000);
+  </script>
+</body>
+</html>
