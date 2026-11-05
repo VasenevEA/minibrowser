@@ -72,6 +72,8 @@ pub struct BlitzPage {
     base: Option<std::path::PathBuf>,
     /// The page's own URL when it came from the web.
     url: Option<String>,
+    /// Web loads of the current page still running.
+    pending: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl BlitzPage {
@@ -97,6 +99,7 @@ impl BlitzPage {
             trace: std::env::var_os("MB_TRACE").is_some(),
             base: None,
             url: None,
+            pending: Default::default(),
         }
     }
 
@@ -123,22 +126,41 @@ impl BlitzPage {
         true
     }
 
-    fn page_config(&self) -> DocumentConfig {
+    fn page_config(&mut self) -> DocumentConfig {
         let mut c = Self::config(self.width, self.height);
-        let files = self.base.clone().unwrap_or_else(|| std::path::PathBuf::from("/nonexistent"));
+        let files = net::Files::new(self.base.clone().unwrap_or_else(|| std::path::PathBuf::from("/nonexistent")));
+        self.pending = files.pending.clone();
         if let Some(url) = &self.url {
             c.base_url = Some(url.clone());
-            c.net_provider = Some(Arc::new(net::Files::new(files)));
+            c.net_provider = Some(Arc::new(files));
         } else if let Some(base) = &self.base {
             c.base_url = Some(format!("file://{}/", base.display()));
-            c.net_provider = Some(Arc::new(net::Files::new(files)));
+            c.net_provider = Some(Arc::new(files));
         }
         c
     }
 
+    /// Waits (at most 15 s) until the page's web loads are done, styling in
+    /// between: stylesheets that arrive ask for fonts and images in turn.
+    fn settle(&mut self) {
+        use std::sync::atomic::Ordering;
+        let start = std::time::Instant::now();
+        loop {
+            self.doc.borrow_mut().resolve(self.now_ms);
+            if self.pending.load(Ordering::SeqCst) == 0 || start.elapsed().as_secs() >= 15 {
+                break;
+            }
+            while self.pending.load(Ordering::SeqCst) > 0 && start.elapsed().as_secs() < 15 {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
+        self.dirty = true;
+    }
+
     pub fn load(&mut self, html: &str) {
         // The new document first: a live DOM host reads it as it resets.
-        *self.doc.borrow_mut() = HtmlDocument::from_html(html, self.page_config());
+        let config = self.page_config();
+        *self.doc.borrow_mut() = HtmlDocument::from_html(html, config);
         self.js.reset();
         self.last.clear();
         // Scripts run here: what a page shows without them goes.
@@ -160,6 +182,9 @@ impl BlitzPage {
         if self.live {
             let cmds = run(self.js.as_mut(), "__mb_loaded()", self.now_ms);
             self.apply(&cmds);
+        }
+        if self.url.is_some() {
+            self.settle();
         }
         self.dirty = true;
         self.render();

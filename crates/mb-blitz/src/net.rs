@@ -8,7 +8,12 @@ use blitz_traits::net::{Bytes, NetHandler, NetProvider, Request};
 
 pub struct Files {
     base: PathBuf,
+    /// Web loads still running (they run on threads, a few at a time).
+    pub pending: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
+
+/// At most this many web loads at once.
+const PARALLEL: usize = 8;
 
 /// GET `url` (http, https): the body, or None after logging why.
 #[cfg(feature = "http")]
@@ -50,7 +55,7 @@ pub fn http_get(url: &str) -> Option<Vec<u8>> {
 
 impl Files {
     pub fn new(base: PathBuf) -> Self {
-        Self { base }
+        Self { base, pending: Default::default() }
     }
 
     /// The file a `file:` URL names, if it is inside the page's directory or /tmp.
@@ -66,11 +71,29 @@ impl Files {
 
 impl NetProvider for Files {
     fn fetch(&self, _doc_id: usize, request: Request, handler: Box<dyn NetHandler>) {
-        let data = match request.url.scheme() {
-            "http" | "https" => http_get(request.url.as_str()),
-            _ => self.path(&request).and_then(|p| std::fs::read(p).ok()),
-        };
-        match data {
+        use std::sync::atomic::Ordering;
+        if matches!(request.url.scheme(), "http" | "https") {
+            // On a thread: the page waits for all of them together (BlitzPage::settle).
+            let pending = self.pending.clone();
+            pending.fetch_add(1, Ordering::SeqCst);
+            std::thread::spawn(move || {
+                static SLOTS: (std::sync::Mutex<usize>, std::sync::Condvar) = (std::sync::Mutex::new(0), std::sync::Condvar::new());
+                let mut n = SLOTS.0.lock().unwrap();
+                while *n >= PARALLEL {
+                    n = SLOTS.1.wait(n).unwrap();
+                }
+                *n += 1;
+                drop(n);
+                if let Some(data) = http_get(request.url.as_str()) {
+                    handler.bytes(request.url.to_string(), Bytes::from(data));
+                }
+                *SLOTS.0.lock().unwrap() -= 1;
+                SLOTS.1.notify_one();
+                pending.fetch_sub(1, Ordering::SeqCst);
+            });
+            return;
+        }
+        match self.path(&request).and_then(|p| std::fs::read(p).ok()) {
             Some(data) => handler.bytes(request.url.to_string(), Bytes::from(data)),
             None => log::warn!("net: {} not loaded (no network, or outside the page's directory)", request.url),
         }
