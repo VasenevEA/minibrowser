@@ -93,15 +93,60 @@ def score(a, b):
     return (float((ok & ink).sum()) / n if n else 1.0), diff
 
 
-# Pages whose score says nothing about rendering: why (see docs/testing.md).
-EXPECTED = {
-    "demo5-js-clock": "a clock: the screenshots are taken at different moments",
-    "demo24-anim": "animated: different moments of the animation",
-    "demo25-canvas": "animated canvas",
-    "demo26-pixels": "random pixels every frame: 0% expected",
-    "demo29-fetch": "live data from the web",
-    "demo30-live": "needs the ws_feed WebSocket server",
+# Explicit scenario metadata: inspect new demos for timers, wall-clock reads,
+# randomness and external data before treating them as comparable snapshots.
+GROUPS = {
+    "static": "Static snapshots",
+    "animation": "Animations and timers",
+    "clock": "Wall-clock content",
+    "random": "Random content",
+    "network": "Network-dependent content",
 }
+SCENARIOS = {
+    "demo5-js-clock": ("clock", "current date/time and elapsed time"),
+    "demo8-js-hmi": ("clock", "event log includes the current time"),
+    "demo21-panel": ("random", "random sensor readings, timers and current time"),
+    "demo22-svg-gauges": ("animation", "SVG changes every 500 ms"),
+    "demo24-anim": ("animation", "animation frames and current time"),
+    "demo25-canvas": ("animation", "animated canvas"),
+    "demo26-pixels": ("animation", "time-dependent pixel animation and FPS counter"),
+    "demo28-preact": ("animation", "Preact counter changes every second"),
+    "demo29-fetch": ("network", "live weather over HTTPS"),
+    "demo30-live": ("network", "local ws_feed WebSocket server and live weather"),
+}
+
+
+def report(rows, provenance=None):
+    """Build the report from (page name, score) pairs without running renderers."""
+    lines = [
+        f"# MiniBrowser vs Chrome ({W}x{H}, ink pixels matching within {SHIFT}px, tolerance {TOL})",
+        "",
+        "[How to read this report](../../docs/testing.md). "
+        "The static snapshot average is the rendering indicator. "
+        "Dynamic scores are diagnostic only: capture times and external inputs are not synchronized.",
+        "",
+    ]
+    if provenance:
+        lines.extend([provenance, ""])
+    lines.extend(["| scenario | pages | average match |", "|---|---|---|"])
+    grouped = {key: [] for key in GROUPS}
+    for name, value in rows:
+        group, note = SCENARIOS.get(name, ("static", ""))
+        grouped[group].append((name, value, note))
+    for group, title in GROUPS.items():
+        entries = grouped[group]
+        average = f"{sum(v for _, v, _ in entries) / len(entries) * 100:.2f}%" if entries else "n/a"
+        lines.append(f"| {title} | {len(entries)} | {average} |")
+    for group, title in GROUPS.items():
+        entries = grouped[group]
+        if not entries:
+            continue
+        lines.extend(["", f"## {title}", "", "| page | match | note |", "|---|---|---|"])
+        for name, value, note in entries:
+            lines.append(f"| {name} | {value * 100:.2f}% | {note} |")
+    lines.extend(["", "Compare the same static page set, viewport and scoring settings between runs. "
+                  "Inspect per-page scores and diff images; an average alone can hide regressions.", ""])
+    return "\n".join(lines)
 
 
 def main():
@@ -119,18 +164,13 @@ def main():
         d.save(diff)
         rows.append((name, s))
         print(f"{s * 100:6.2f}%  {name}", flush=True)
-    avg = sum(s for _, s in rows) / len(rows)
-    with open(os.path.join(OUT, "report.md"), "w") as f:
-        f.write(f"# MiniBrowser vs Chrome ({W}x{H}, ink pixels matching within {SHIFT}px, tolerance {TOL})\n\n"
-                "See docs/testing.md. Pages with a note cannot match by design and are left out of the average of the rest.\n\n"
-                "| page | match | note |\n|---|---|---|\n")
-        for n, s in rows:
-            f.write(f"| {n} | {s * 100:.2f}% | {EXPECTED.get(n, '')} |\n")
-        rest = [s for n, s in rows if n not in EXPECTED]
-        f.write(f"| **average** | **{avg * 100:.2f}%** | all pages |\n")
-        if rest:
-            f.write(f"| **average, comparable pages** | **{sum(rest) / len(rest) * 100:.2f}%** | {len(rest)} pages |\n")
-    print(f"{avg * 100:6.2f}%  average")
+    with open(os.path.join(OUT, "report.md"), "w", encoding="utf-8") as f:
+        f.write(report(rows))
+    static = [s for n, s in rows if n not in SCENARIOS]
+    if static:
+        print(f"{sum(static) / len(static) * 100:6.2f}%  static snapshot average ({len(static)} pages)")
+    else:
+        print("n/a  static snapshot average (0 pages)")
 
 
 if __name__ == "__main__":
