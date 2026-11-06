@@ -22,17 +22,45 @@ python3 tools/sbs.py sheet.png demo13-grid demo21-panel
 
 ## Reading the numbers
 
-Some pages cannot match by design; the report marks them:
+The report separates five scenario groups and shows a count and average for
+each (an empty group is `n/a`):
 
-- **animated pages** (`demo24-anim`, `demo5-js-clock`, …): Chrome and the
-  engine take their screenshot at different moments of the animation;
-- **random content** (`demo26-pixels` draws noise every frame): 0% is expected;
-- **network pages** (`demo29-fetch`, `demo30-live`): live data from the web or
-  from a local WebSocket server (`cargo run -p mb-qjs --features net
-  --example ws_feed`) that is not running during the comparison.
+- **Static snapshots**: the primary rendering indicator. JavaScript may build
+  the page, but its captured content does not depend on time or external data.
+- **Animations and timers**: SVG, canvas, pixel animations and the Preact timer.
+  Chrome captures after a 2000 ms virtual-time budget; `mb-headless` captures
+  immediately after loading, without `--wait`. Their frames are not synchronized.
+- **Wall-clock content**: dates, clocks and timestamped event logs.
+- **Random content**: the panel demo generates random sensor values and also
+  displays time-dependent content.
+- **Network-dependent content**: live weather and the local WebSocket feed
+  (`cargo run -p mb-qjs --features net --example ws_feed`). Results depend on
+  connectivity, response timing and server availability.
 
-For the other pages a low score is a real rendering difference and worth a
-look in the `*.diff.png` the tool writes next to the report.
+Dynamic group scores are diagnostic only. A low score there does not establish
+a rendering defect; a high one does not establish correct animation or network
+behavior. `demo26-pixels` is a time-dependent animation, not random noise, and
+no particular score is expected for it.
+
+There is deliberately no combined average across all groups. For regression
+checks, compare the **same static page set**, viewport and tolerance settings
+between runs, then inspect each page's score and `*.diff.png`: an average can
+hide one page getting worse while another improves. Static scores can still
+reflect JavaScript compatibility or resource-loading problems, not just painting.
+
+Scenario membership is explicit in `SCENARIOS` in `tools/refcompare.py`; pages
+not listed there default to static snapshots. When adding a demo, inspect its
+scripts and resources for timers, wall-clock reads, randomness and external data
+and add metadata if needed. For mixed scenarios, choose the main source of
+variation and describe the others in the note. Low scores alone must never be
+used to classify a page as dynamic.
+
+Report-format tests run without Chrome or a Rust build (numpy and Pillow are
+still required):
+
+```bash
+python3 -m unittest discover -s tests -p 'test_refcompare.py'
+```
 
 Headless Chrome puts pages without a doctype into quirks mode, as browsers do;
 the core engine imitates it, the Blitz engine does not, so compare Blitz on
